@@ -132,6 +132,7 @@ function selectDay(day, targetView = view) {
 function changeMonth(next) {
   if (!validMonth(next)) return;
   selectionVersion++;
+  if (next === month && (loading || loadedMonth === month)) return;
   month = next;
   selectedDay = today.startsWith(next) ? today : next + '-01';
   loadMonth();
