@@ -1,6 +1,6 @@
 {
   "name": "exercise",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "A private fitness journal in the Daily and CirGrid family.",
@@ -10,7 +10,9 @@
     "stop": "python3 scripts/run.py stop",
     "status": "python3 scripts/run.py status",
     "dev": "python3 backend/server.py",
-    "test": "python3 -B -m unittest discover -s tests -v && node --test tests/model.test.mjs",
-    "check": "node scripts/check.mjs"
+    "test": "python3 -B -m unittest discover -s tests -v && node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "build:demo": "node scripts/build-demo.mjs",
+    "test:browser": "node tests/browser-regressions.cjs"
   }
 }

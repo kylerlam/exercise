@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
+APP_VERSION = "0.1.1"
 COOKIE = "exercise_session"
 SESSION_SECONDS = 30 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 600_000
@@ -227,7 +228,14 @@ class Store:
             with closing(self.connect()) as db, db:
                 db.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash(token),))
 
-    def update_account(self, data):
+    def require_session(self, db, token):
+        # Direct Store calls are trusted; HTTP mutations always supply their session token.
+        if token is not None and not db.execute(
+                "SELECT 1 FROM sessions WHERE token_hash=? AND expires_at>?",
+                (token_hash(token), self.epoch())).fetchone():
+            raise RequestError("Sign in to continue.", 401, "AUTH_REQUIRED")
+
+    def update_account(self, data, token=None):
         fields(data, {"username", "current_password", "new_password"})
         username = text(data.get("username"), "USERNAME", 2, 64)
         if username != username.strip() or any(unicodedata.category(char) == "Cc" for char in username):
@@ -238,6 +246,7 @@ class Store:
             text(new_password, "PASSWORD", 8, 256)
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
             account = db.execute("SELECT * FROM accounts WHERE id=1").fetchone()
             if not hmac.compare_digest(password_hash(current, account["salt"]), account["password_hash"]):
                 raise RequestError("The current password is incorrect.", code="INVALID_CURRENT_PASSWORD")
@@ -264,9 +273,11 @@ class Store:
                               (month + "-01", month + "-31")).fetchall()
             return {"records": [dict(row) for row in rows], "today": self.today()}
 
-    def create(self, data):
+    def create(self, data, token=None):
         record = validate_record(data)
         with closing(self.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
             now = self.now()
             record_id = db.execute("""INSERT INTO records
                 (day,type,bodyPart,exercise,sets,reps,duration,distance,notes,created_at,updated_at)
@@ -274,10 +285,11 @@ class Store:
                                    {**record, "created_at": now, "updated_at": now}).lastrowid
             return self.record(db, record_id)
 
-    def patch(self, record_id, data):
+    def patch(self, record_id, data, token=None):
         record = validate_record(data, editing=True)
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
             current = self.record(db, record_id)
             if current["version"] != data["version"]:
                 raise RequestError("This record changed on another screen. Refresh and try again.", 409, "RECORD_CHANGED")
@@ -287,11 +299,12 @@ class Store:
                 version=version+1,updated_at=:updated_at WHERE id=:id""", values)
             return self.record(db, record_id)
 
-    def delete(self, record_id, data):
+    def delete(self, record_id, data, token=None):
         fields(data, {"version"})
         version = integer(data.get("version"), "VERSION", 2 ** 31 - 1)
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
             current = self.record(db, record_id)
             if current["version"] != version:
                 raise RequestError("This record changed on another screen. Refresh and try again.", 409, "RECORD_CHANGED")
@@ -310,7 +323,7 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
     attempts_lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "Exercise/1.0"
+        server_version = "Exercise/" + APP_VERSION
 
         def send_bytes(self, content, content_type, status=200):
             self.send_response(status)
@@ -422,9 +435,12 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
         def handle_request(self):
             self.pending_cookie = None
             try:
-                parsed = urlsplit(self.path)
-                path = unquote(parsed.path)
-                query = parse_qs(parsed.query, keep_blank_values=True)
+                try:
+                    parsed = urlsplit(self.path)
+                    path = unquote(parsed.path)
+                    query = parse_qs(parsed.query, keep_blank_values=True)
+                except ValueError:
+                    raise RequestError("The request path is invalid.", code="INVALID_PATH") from None
                 if self.command not in ("GET", "HEAD"):
                     self.mutation_check()
                 token = self.session_token()
@@ -435,7 +451,7 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                 if path == "/api/health" and self.command in ("GET", "HEAD"):
                     with closing(store.connect()) as db:
                         db.execute("SELECT 1")
-                    return self.send_json({"ok": True, "status": "ok", "app": "exercise", "version": "0.1.0",
+                    return self.send_json({"ok": True, "status": "ok", "app": "exercise", "version": APP_VERSION,
                                            "pid": os.getpid(), "today": store.today()})
                 if path == "/api/auth/login" and self.command == "POST":
                     self.login_limit()
@@ -452,7 +468,7 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                 if (path == "/api" or path.startswith("/api/")) and self.user is None:
                     raise RequestError("Sign in to continue.", 401, "AUTH_REQUIRED")
                 if path == "/api/account" and self.command == "PATCH":
-                    store.update_account(self.body())
+                    store.update_account(self.body(), token=token)
                     self.set_cookie()
                     return self.send_json({"reauthenticate": True})
                 if path == "/api/records" and self.command in ("GET", "HEAD"):
@@ -464,13 +480,13 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                         raise RequestError("This endpoint does not take parameters.", code="INVALID_QUERY")
                     return self.send_json(store.export())
                 if path == "/api/records" and self.command == "POST":
-                    return self.send_json({"record": store.create(self.body())}, 201)
+                    return self.send_json({"record": store.create(self.body(), token=token)}, 201)
                 match = re.fullmatch(r"/api/records/([1-9]\d{0,18})", path)
                 if match and int(match[1]) < 2 ** 63:
                     if self.command == "PATCH":
-                        return self.send_json({"record": store.patch(int(match[1]), self.body())})
+                        return self.send_json({"record": store.patch(int(match[1]), self.body(), token=token)})
                     if self.command == "DELETE":
-                        store.delete(int(match[1]), self.body())
+                        store.delete(int(match[1]), self.body(), token=token)
                         return self.send_json({"ok": True})
                 if path == "/api" or path.startswith("/api/"):
                     raise RequestError("The endpoint was not found.", 404, "NOT_FOUND")

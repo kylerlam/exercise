@@ -1,4 +1,5 @@
 """Start an independent, persistent local Exercise process without installing anything."""
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -19,29 +20,38 @@ def health():
     try:
         with urlopen(URL + '/api/health', timeout=1) as response:
             data = json.load(response)
-        return data if data.get('app') == 'exercise' else None
-    except (URLError, OSError, ValueError):
+        if (isinstance(data, dict) and data.get('app') == 'exercise' and data.get('status') == 'ok'
+                and type(data.get('pid')) is int and data['pid'] > 0):
+            return data
+        return None
+    except (URLError, OSError, ValueError, RecursionError):
         return None
 
 
-def main():
-    action = sys.argv[1] if len(sys.argv) > 1 else 'start'
-    if action not in ('start', 'stop', 'status'):
-        raise SystemExit('Usage: python3 scripts/run.py [start|stop|status]')
+def read_pid(path):
+    try:
+        return int(path.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def manage(action):
     state = health()
-    if action == 'status':
-        print(f'Exercise is running: {URL}' if state else 'Exercise is stopped.')
-        return
-    pid_file = RUNTIME / 'server.pid'
+    # Preserve the original default-port PID file for already running installations.
+    pid_file = RUNTIME / ('server.pid' if PORT == 4186 else f'server-{PORT}.pid')
     if action == 'stop':
         if not state:
             print('Exercise is already stopped.')
             return
-        if not pid_file.exists() or int(pid_file.read_text().strip()) != state.get('pid'):
+        if read_pid(pid_file) != state['pid']:
             raise SystemExit('This process was started elsewhere. Stop it in its own terminal.')
-        os.kill(state['pid'], signal.SIGTERM)
+        try:
+            os.kill(state['pid'], signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         for _ in range(40):
-            if not health():
+            current = health()
+            if current is None or current['pid'] != state['pid']:
                 pid_file.unlink(missing_ok=True)
                 print('Exercise stopped. Your data is kept in data/.')
                 return
@@ -50,22 +60,36 @@ def main():
     if state:
         print(f'Exercise is already running: {URL}')
         return
-    RUNTIME.mkdir(exist_ok=True, mode=0o700)
     env = dict(os.environ, HOST='127.0.0.1', PORT=str(PORT), PYTHONDONTWRITEBYTECODE='1', PYTHONUNBUFFERED='1')
     with (RUNTIME / 'server.log').open('ab') as log:
         process = subprocess.Popen([sys.executable, '-B', 'backend/server.py'], cwd=ROOT, env=env,
                                    stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
-    pid_file.write_text(str(process.pid))
     for _ in range(60):
         state = health()
         if state and state.get('pid') == process.pid:
+            pid_file.write_text(str(process.pid))
             print(f'Exercise is running: {URL}')
             return
         if process.poll() is not None:
+            process.wait()
             raise SystemExit('Startup failed. Read .runtime/server.log; check whether the port is in use.')
         time.sleep(.1)
     process.terminate()
+    process.wait(timeout=5)
     raise SystemExit('Startup timed out. Read .runtime/server.log.')
+
+
+def main():
+    action = sys.argv[1] if len(sys.argv) > 1 else 'start'
+    if action not in ('start', 'stop', 'status'):
+        raise SystemExit('Usage: python3 scripts/run.py [start|stop|status]')
+    if action == 'status':
+        print(f'Exercise is running: {URL}' if health() else 'Exercise is stopped.')
+        return
+    RUNTIME.mkdir(exist_ok=True, mode=0o700)
+    with (RUNTIME / f'server-{PORT}.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        manage(action)
 
 
 if __name__ == '__main__':

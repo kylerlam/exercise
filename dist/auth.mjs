@@ -1,5 +1,28 @@
 import { t } from './i18n.mjs';
 
+const DRAFT_KEY = 'exercise-pending-record';
+
+export function saveRecordDraft(draft) {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    return true;
+  } catch { return false; }
+}
+
+export function takeRecordDraft() {
+  try {
+    const text = sessionStorage.getItem(DRAFT_KEY);
+    if (!text) return null;
+    const draft = JSON.parse(text);
+    sessionStorage.removeItem(DRAFT_KEY);
+    return draft && typeof draft === 'object' && draft.values && typeof draft.values === 'object' ? draft : null;
+  } catch { return null; }
+}
+
+export function clearRecordDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* An explicit sign-out still works when storage is blocked. */ }
+}
+
 export async function authRequest(path, options = {}) {
   let response;
   try {

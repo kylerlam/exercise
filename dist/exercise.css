@@ -78,6 +78,11 @@
 .strength-fields { display: grid; grid-template-columns: 1fr 1.7fr .7fr .7fr; gap: 12px; }
 .cardio-fields { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; }
 .record-dialog .field { min-width: 0; }
+.record-dialog .field-label { display: block; line-height: 1.5; overflow-wrap: anywhere; }
+.record-dialog .field-label .optional { display: inline-block; white-space: nowrap; }
+.strength-fields > .field, .cardio-fields > .field { display: flex; flex-direction: column; }
+.strength-fields .field-label, .cardio-fields .field-label { margin-bottom: 9px; }
+.strength-fields .field input, .cardio-fields .field input { margin-top: auto; }
 .record-dialog .field input, .record-dialog .field select { min-width: 0; max-width: 100%; }
 .record-dialog .field-hint { margin-top: -5px; margin-bottom: 22px; }
 @media (max-width: 1130px) {
@@ -87,7 +92,8 @@
 @media (max-width: 700px) {
   .loading-state { top: 83px; right: 16px; }
   .navigation { background: var(--surface); }
-  .nav-item { width: 33.333%; font-size: 14px; gap: 7px; padding: 10px 5px; }
+  .nav-item { width: 33.333%; min-width: 0; white-space: normal; font-size: 14px; gap: 7px; padding: 10px 5px; }
+  .nav-item > span:last-child { min-width: 0; text-align: center; }
   .calendar-day { min-height: 73px; }
   .calendar-workout { font-size: 9px; min-height: 14px; }
   .day-title-row h2 { font-size: 20px; }
@@ -138,7 +144,7 @@
   .brand img { width: 110px; }
   .topbar > .button { font-size: 13px; padding: 9px 10px; }
   .settings-trigger { width: 34px; min-width: 34px; }
-  .nav-item { font-size: 13px; gap: 5px; }
+  .nav-item { font-size: 13px; gap: 4px; padding-inline: 4px; }
   .nav-item svg { width: 15px; height: 15px; }
   .record-dialog { padding: 20px 16px; }
   .month-toolbar { gap: 5px; }

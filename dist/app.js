@@ -1,7 +1,7 @@
 import { applyTranslations, getLocale, t } from './i18n.mjs';
 import { applyTheme } from './theme.mjs';
 import { initSettings } from './settings.mjs';
-import { authRequest, errorMessage, redirectToLogin } from './auth.mjs';
+import { authRequest, errorMessage, redirectToLogin, saveRecordDraft, takeRecordDraft } from './auth.mjs';
 import { calendarDays, dateValue, localDay, monthDays, positiveInteger, recordPayload, shiftDay, shiftMonth, summarize } from './model.mjs';
 
 const $ = (selector) => document.querySelector(selector);
@@ -31,6 +31,7 @@ let records = [];
 let loadedMonth = null;
 let view = 'calendar';
 let requestVersion = 0;
+let selectionVersion = 0;
 let authenticated = false;
 let loading = true;
 let toastTimer;
@@ -78,6 +79,16 @@ function showPageError(error) {
 }
 function handleAuthError(error) {
   if (error.status === 401) {
+    if (isDirty()) {
+      const draft = { values: entryValues(), editing: editing ? { id: editing.id, version: editing.version } : null };
+      if (!saveRecordDraft(draft)) {
+        $('#record-error').textContent = t('sessionExpiredDraftRetained');
+        $('#record-error').hidden = false;
+        $('#record-reauth').hidden = false;
+        return true;
+      }
+      draftBaseline = JSON.stringify(entryValues());
+    }
     redirectToLogin();
     return true;
   }
@@ -110,6 +121,7 @@ async function loadMonth() {
 }
 function selectDay(day, targetView = view) {
   if (!validDay(day)) return;
+  selectionVersion++;
   selectedDay = day;
   const nextMonth = day.slice(0, 7);
   month = nextMonth;
@@ -119,9 +131,22 @@ function selectDay(day, targetView = view) {
 }
 function changeMonth(next) {
   if (!/^\d{4}-\d{2}$/.test(next) || next < '1900-01' || next > '9998-12') return;
+  selectionVersion++;
   month = next;
   selectedDay = today.startsWith(next) ? today : next + '-01';
   loadMonth();
+}
+async function selectToday() {
+  const version = ++selectionVersion;
+  try {
+    const status = await authRequest('/api/auth/status');
+    if (version !== selectionVersion) return;
+    if (!status.authenticated) { handleAuthError({ status: 401 }); return; }
+    today = status.today || today;
+    selectDay(today);
+  } catch (error) {
+    if (version === selectionVersion && !handleAuthError(error)) showPageError(error);
+  }
 }
 function actionButton(name, label, callback) {
   const button = element('button', 'icon-button record-action');
@@ -357,6 +382,7 @@ function openRecord(record = null, type = 'strength') {
   $('#entry-notes').value = record?.notes || '';
   $('#record-dialog-title').textContent = t(record ? 'editRecord' : 'newRecord');
   $('#record-error').hidden = true;
+  $('#record-reauth').hidden = true;
   syncTypeFields();
   draftBaseline = JSON.stringify(entryValues());
   recordDialog.showModal();
@@ -364,6 +390,24 @@ function openRecord(record = null, type = 'strength') {
 }
 function closeRecord() {
   if (!entryBusy && (!isDirty() || confirm(t('discardDraft')))) recordDialog.close();
+}
+async function restoreRecordDraft() {
+  const draft = takeRecordDraft();
+  if (!draft || !validDay(draft.values.day) || !['strength', 'cardio'].includes(draft.values.type)) return false;
+  const values = draft.values;
+  selectionVersion++;
+  selectedDay = values.day;
+  month = values.day.slice(0, 7);
+  openRecord(draft.editing ? { ...values, ...draft.editing } : null, values.type);
+  for (const [key, id] of Object.entries({ day: 'entry-day', bodyPart: 'entry-body', sets: 'entry-sets', reps: 'entry-reps', duration: 'entry-duration', distance: 'entry-distance', notes: 'entry-notes' })) {
+    $('#' + id).value = values[key] ?? '';
+  }
+  $(values.type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value = values.exercise ?? '';
+  draftBaseline = '';
+  showToast(t('draftRestored'));
+  if (loadedMonth !== month) await loadMonth();
+  else render();
+  return true;
 }
 function setEntryBusy(value) {
   entryBusy = value;
@@ -381,6 +425,7 @@ recordForm.addEventListener('submit', async (event) => {
   if (values.type === 'cardio' && !(Number(values.duration) > 0 && Number.isFinite(Number(values.duration)) && Number(values.duration) <= 10080)) validation = 'durationError';
   if (values.type === 'cardio' && values.distance !== '' && !(Number(values.distance) > 0 && Number.isFinite(Number(values.distance)) && Number(values.distance) <= 100000)) validation = 'distanceError';
   $('#record-error').hidden = !validation;
+  $('#record-reauth').hidden = true;
   if (validation) { $('#record-error').textContent = t(validation); return; }
   const body = recordPayload(values);
   if (editing) body.version = editing.version;
@@ -389,6 +434,7 @@ recordForm.addEventListener('submit', async (event) => {
     const result = await authRequest(editing ? `/api/records/${editing.id}` : '/api/records', { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(body) });
     draftBaseline = JSON.stringify(entryValues());
     recordDialog.close();
+    selectionVersion++;
     selectedDay = result.record.day;
     month = selectedDay.slice(0, 7);
     await loadMonth();
@@ -397,6 +443,7 @@ recordForm.addEventListener('submit', async (event) => {
     if (handleAuthError(error)) return;
     $('#record-error').textContent = error.status === 409 ? t('staleRecord') : errorMessage(error);
     $('#record-error').hidden = false;
+    if (error.status === 409) await loadMonth();
   } finally { setEntryBusy(false); }
 });
 $('#entry-type').addEventListener('change', syncTypeFields);
@@ -427,6 +474,7 @@ $('#confirm-delete').addEventListener('click', async () => {
     if (handleAuthError(error)) return;
     $('#delete-error').textContent = error.status === 409 ? t('errors.CONFLICT') : errorMessage(error);
     $('#delete-error').hidden = false;
+    if (error.status === 409) await loadMonth();
   } finally {
     deleteBusy = false;
     $('#confirm-delete').disabled = $('#keep-record').disabled = false;
@@ -441,7 +489,7 @@ $('#next-day').addEventListener('click', () => selectDay(shiftDay(selectedDay, 1
 for (const id of ['#month-input', '#monthly-month-input']) $(id).addEventListener('change', (event) => changeMonth(event.target.value));
 for (const id of ['#previous-month', '#monthly-previous']) $(id).addEventListener('click', () => changeMonth(shiftMonth(month, -1)));
 for (const id of ['#next-month', '#monthly-next']) $(id).addEventListener('click', () => changeMonth(shiftMonth(month, 1)));
-for (const id of ['#calendar-today', '#records-today', '#monthly-today']) $(id).addEventListener('click', () => selectDay(today));
+for (const id of ['#calendar-today', '#records-today', '#monthly-today']) $(id).addEventListener('click', selectToday);
 $('#retry-load').addEventListener('click', () => { if (authenticated) loadMonth(); else location.reload(); });
 let exporting = false;
 async function exportData() {
@@ -483,10 +531,11 @@ try {
   else {
     authenticated = true;
     today = status.today || today;
+    selectionVersion++;
     selectedDay = today;
     month = today.slice(0, 7);
     initSettings(status.user);
-    await loadMonth();
+    if (!await restoreRecordDraft()) await loadMonth();
   }
 } catch (error) {
   loading = false;

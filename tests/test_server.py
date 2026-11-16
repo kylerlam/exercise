@@ -6,9 +6,11 @@ from datetime import datetime, timedelta
 import http.client
 import json
 from pathlib import Path
+import socket
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from backend.server import COOKIE, SESSION_SECONDS, RequestError, Store, create_server, token_hash, validate_record
@@ -95,6 +97,20 @@ class StoreTests(unittest.TestCase):
         token, _ = self.store.login({"username": "admin", "password": "admin123"})
         self.store.logout(token)
         self.assertIsNone(self.store.session_user(token))
+
+    def test_expired_session_cannot_mutate_records(self):
+        record = self.store.create(strength())
+        token, _ = self.store.login({"username": "admin", "password": "admin123"})
+        self.now += timedelta(seconds=SESSION_SECONDS)
+        operations = (lambda: self.store.create(strength(), token=token),
+                      lambda: self.store.patch(record["id"], {**strength(), "version": 1}, token=token),
+                      lambda: self.store.delete(record["id"], {"version": 1}, token=token),
+                      lambda: self.store.update_account({"username": "trainer", "current_password": "admin123"}, token=token))
+        for operation in operations:
+            with self.assertRaises(RequestError) as error:
+                operation()
+            self.assertEqual(error.exception.status, 401)
+        self.assertEqual(self.store.export()["records"], [record])
 
     def test_password_change_revokes_all_sessions_and_hides_defaults(self):
         token1, _ = self.store.login({"username": "admin", "password": "admin123"})
@@ -226,7 +242,8 @@ class HTTPTests(unittest.TestCase):
     def test_public_health_auth_status_and_guard(self):
         status, _, body = self.request("GET", "/api/health")
         self.assertEqual(status, 200)
-        self.assertEqual((body["status"], body["app"], body["version"]), ("ok", "exercise", "0.1.0"))
+        version = json.loads((Path(__file__).resolve().parents[1] / "package.json").read_text())["version"]
+        self.assertEqual((body["status"], body["app"], body["version"]), ("ok", "exercise", version))
         self.assertIs(type(body["pid"]), int)
         status, _, body = self.request("GET", "/api/auth/status")
         self.assertEqual(status, 200)
@@ -308,6 +325,63 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/export")[0], 401)
         self.assertFalse(self.request("GET", "/api/auth/status")[2]["show_default_credentials"])
         self.assertEqual(self.request("POST", "/api/auth/login", {"username": "trainer", "password": "a-new-password"})[0], 200)
+
+    def delayed_mutation(self, method, path, data, revoke):
+        waiting = threading.Event()
+        original_body = self.server.RequestHandlerClass.body
+        def wait_for_body(handler):
+            if handler.command == method and handler.path == path:
+                waiting.set()
+            return original_body(handler)
+        connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        payload = json.dumps(data).encode()
+        with patch.object(self.server.RequestHandlerClass, "body", wait_for_body):
+            try:
+                connection.putrequest(method, path)
+                connection.putheader("Content-Type", "application/json")
+                connection.putheader("Cookie", self.cookie)
+                connection.putheader("Content-Length", str(len(payload)))
+                connection.endheaders()
+                self.assertTrue(waiting.wait(2), "The request did not reach its delayed body read.")
+                revoke()
+                connection.send(payload)
+                response = connection.getresponse()
+                result = json.loads(response.read())
+                self.assertEqual(response.status, 401)
+                self.assertEqual(result["code"], "AUTH_REQUIRED")
+            finally:
+                connection.close()
+
+    def test_delayed_mutations_recheck_session_after_logout(self):
+        record = self.store.create(strength())
+        operations = (("POST", "/api/records", strength(exercise="未授权动作")),
+                      ("PATCH", f'/api/records/{record["id"]}', {**strength(reps=20), "version": 1}),
+                      ("DELETE", f'/api/records/{record["id"]}', {"version": 1}),
+                      ("PATCH", "/api/account", {"username": "trainer", "current_password": "admin123"}))
+        for method, path, data in operations:
+            with self.subTest(method=method, path=path):
+                self.login()
+                self.delayed_mutation(method, path, data,
+                                      lambda: self.assertEqual(self.request("POST", "/api/auth/logout", {})[0], 200))
+        self.assertEqual(self.store.export()["records"], [record])
+        self.login()
+
+    def test_delayed_record_creation_rechecks_session_after_password_change(self):
+        self.login()
+        def change_password():
+            self.assertEqual(self.request("PATCH", "/api/account", {
+                "username": "trainer", "current_password": "admin123", "new_password": "a-new-password"})[0], 200)
+        self.delayed_mutation("POST", "/api/records", strength(), change_password)
+        self.assertEqual(self.store.export()["records"], [])
+
+    def test_malformed_request_url_returns_400(self):
+        with socket.create_connection(self.server.server_address, timeout=5) as connection:
+            connection.sendall(b"GET http://[ HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            response = http.client.HTTPResponse(connection)
+            response.begin()
+            self.assertEqual(response.status, 400)
+            self.assertEqual(json.loads(response.read())["code"], "INVALID_PATH")
+        self.assertEqual(self.request("GET", "/api/health")[0], 200)
 
     def test_static_traversal_and_security_headers(self):
         for path in ("/%2e%2e/backend/server.py", "/../data/exercise.sqlite3", "/.env", "/%00", "/missing.js"):
