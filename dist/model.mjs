@@ -6,6 +6,11 @@ export function dateValue(day) {
   return new Date(day + 'T12:00:00');
 }
 
+export function validMonth(value) {
+  return typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
+    && value >= '1900-01' && value <= '9998-12';
+}
+
 export function shiftDay(day, offset) {
   const value = dateValue(day);
   value.setDate(value.getDate() + offset);

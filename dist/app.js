@@ -2,7 +2,7 @@ import { applyTranslations, getLocale, t } from './i18n.mjs';
 import { applyTheme } from './theme.mjs';
 import { initSettings } from './settings.mjs';
 import { authRequest, errorMessage, redirectToLogin, saveRecordDraft, takeRecordDraft } from './auth.mjs';
-import { calendarDays, dateValue, localDay, monthDays, positiveInteger, recordPayload, shiftDay, shiftMonth, summarize } from './model.mjs';
+import { calendarDays, dateValue, localDay, monthDays, positiveInteger, recordPayload, shiftDay, shiftMonth, summarize, validMonth } from './model.mjs';
 
 const $ = (selector) => document.querySelector(selector);
 const paths = {
@@ -130,11 +130,20 @@ function selectDay(day, targetView = view) {
   else render();
 }
 function changeMonth(next) {
-  if (!/^\d{4}-\d{2}$/.test(next) || next < '1900-01' || next > '9998-12') return;
+  if (!validMonth(next)) return;
   selectionVersion++;
   month = next;
   selectedDay = today.startsWith(next) ? today : next + '-01';
   loadMonth();
+}
+function applyMonthInput(input) {
+  if (!validMonth(input.value)) {
+    input.setCustomValidity(t('invalidMonth'));
+    input.reportValidity();
+    return;
+  }
+  input.setCustomValidity('');
+  changeMonth(input.value);
 }
 async function selectToday() {
   const version = ++selectionVersion;
@@ -181,6 +190,7 @@ function emptyState(target, full = false) {
 function renderCalendar() {
   $('#month-label').textContent = monthLabel();
   $('#month-input').value = month;
+  $('#month-input').setCustomValidity('');
   $('#previous-month').disabled = month === '1900-01';
   $('#next-month').disabled = month === '9998-12';
   $('#weekdays').replaceChildren(...Array.from({ length: 7 }, (_, index) => element('span', '', dayLabel(`2026-11-${String(index + 2).padStart(2, '0')}`, { weekday: 'narrow' }))));
@@ -281,6 +291,7 @@ function renderRecords() {
 function renderMonthly() {
   $('#monthly-month-label').textContent = monthLabel();
   $('#monthly-month-input').value = month;
+  $('#monthly-month-input').setCustomValidity('');
   $('#monthly-previous').disabled = month === '1900-01';
   $('#monthly-next').disabled = month === '9998-12';
   const totals = summarize(loadedMonth === month ? records : []);
@@ -486,7 +497,23 @@ $('#add-cardio').addEventListener('click', () => openRecord(null, 'cardio'));
 $('#record-date').addEventListener('change', (event) => selectDay(event.target.value));
 $('#previous-day').addEventListener('click', () => selectDay(shiftDay(selectedDay, -1)));
 $('#next-day').addEventListener('click', () => selectDay(shiftDay(selectedDay, 1)));
-for (const id of ['#month-input', '#monthly-month-input']) $(id).addEventListener('change', (event) => changeMonth(event.target.value));
+for (const id of ['#month-input', '#monthly-month-input']) {
+  const input = $(id);
+  if (input.type !== 'month') {
+    input.closest('.month-picker').classList.add('is-fallback');
+    input.placeholder = 'YYYY-MM';
+    input.pattern = '[0-9]{4}-(0[1-9]|1[0-2])';
+    input.maxLength = 7;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.enterKeyHint = 'go';
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); applyMonthInput(input); }
+    });
+  }
+  input.addEventListener('input', () => input.setCustomValidity(''));
+  input.addEventListener('change', () => applyMonthInput(input));
+}
 for (const id of ['#previous-month', '#monthly-previous']) $(id).addEventListener('click', () => changeMonth(shiftMonth(month, -1)));
 for (const id of ['#next-month', '#monthly-next']) $(id).addEventListener('click', () => changeMonth(shiftMonth(month, 1)));
 for (const id of ['#calendar-today', '#records-today', '#monthly-today']) $(id).addEventListener('click', selectToday);

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { monthDays, calendarDays, shiftDay, shiftMonth, summarize, positiveInteger, recordPayload } from '../dist/model.mjs';
+import { monthDays, calendarDays, shiftDay, shiftMonth, summarize, positiveInteger, recordPayload, validMonth } from '../dist/model.mjs';
+
+test('month navigation accepts only real months within supported year bounds', () => {
+  for (const month of ['1900-01', '2026-02', '2026-12', '9998-12']) assert.equal(validMonth(month), true);
+  for (const month of ['2026-00', '2026-13', '2026-99', '2026-2', '2026-02-01', '1899-12', '9999-01', '', null, 202611]) assert.equal(validMonth(month), false, String(month));
+});
 
 test('monthly rows match real calendar months, including leap century rules', () => {
   for (const [month, count] of [['2026-02', 28], ['2028-02', 29], ['1900-02', 28], ['2000-02', 29], ['2026-04', 30], ['2026-12', 31], ['9998-12', 31]]) {
