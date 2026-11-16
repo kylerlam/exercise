@@ -2,6 +2,10 @@
 
 私人的健身记录应用，沿用 Daily Todo 与 CirGrid 的代码架构、登录流程和界面风格。
 
+[在线 Demo](https://exercise-demo-442.pages.dev) · [正式应用](https://exercise.kylermaker.com) · [GitHub](https://github.com/kylerlam/exercise) · [版本记录](CHANGELOG.md)
+
+Demo 使用独立的浏览器示例数据，按香港日期每日重置，不连接正式应用的账号或数据库。
+
 ## 打开应用
 
 默认地址：<http://127.0.0.1:4186>
@@ -47,17 +51,35 @@ data/                本机私有数据库（运行时创建）
 
 数据库位于 `data/exercise.sqlite3`，与 Daily Todo、CirGrid 的账号和记录完全独立。运行时会产生 SQLite 的 `-wal`、`-shm` 文件。搬移数据前先停止服务，再完整复制 `data/`；不要只复制运行中的主数据库文件。程序和运行数据分开保存，升级代码时保留 `data/`。
 
-SQLite 是唯一训练数据源；浏览器存储只保存本应用的主题、语言和登录后的返回位置。本应用无用户注册，沿用参考应用的单账号个人空间模式。
+正式版以 SQLite 保存训练数据；浏览器保存主题、语言和登录后的返回位置，会话过期时还会在当前标签页暂存未保存的训练草稿，重新登录后恢复。主动退出会清除待恢复草稿。本应用无用户注册，沿用参考应用的单账号个人空间模式。
 
 ## 检查与测试
 
 ```sh
 python3 -B -m unittest discover -s tests -v
-node --test tests/model.test.mjs
+node --test tests/*.test.mjs
 node scripts/check.mjs
 ```
 
 测试使用临时数据库，不写入日常使用的 `data/`。Node.js 仅用于开发检查；运行应用本身不需要 Node.js。
+
+浏览器回归测试使用已有 Playwright 和 Chromium，不自动安装依赖：
+
+```sh
+PLAYWRIGHT_MODULE=/path/to/playwright CHROMIUM_PATH=/path/to/chromium node tests/browser-regressions.cjs
+```
+
+覆盖手机布局的四种语言、Optional 标签对齐、并发冲突恢复、跨午夜 Today、过期会话草稿恢复和存储受限场景。GitHub Actions 在 Python 3.11、3.13 下执行后端、模型、Demo 数据及静态检查。
+
+## Pages Demo
+
+```sh
+node scripts/build-demo.mjs
+```
+
+默认输出到 `.runtime/demo/`；也可传入一个独立的空输出目录。只复制公开前端资源，以浏览器存储适配器替换正式 API，不包含登录页、数据库、账号、服务端或私有配置。示例数据在香港午夜后自动恢复，也可手动重置；同一浏览器多个标签页通过 Web Locks 串行保存。
+
+Cloudflare Pages 使用 `exercise-demo` 项目和 `codex/demo` 生产分支。部署生成的目录，不要直接上传正式版 `dist/`。
 
 ## 容器运行
 
@@ -67,6 +89,8 @@ node scripts/check.mjs
 docker compose up -d --build
 ```
 
-默认仍只绑定本机 `127.0.0.1:4186`，数据挂载 `./data`。如之后配置 HTTPS 反向代理，应设置 `SESSION_COOKIE_SECURE=true`。本次未修改、部署或连接现有 NAS 应用，也未创建外部仓库或公开站点。
+默认仍只绑定本机 `127.0.0.1:4186`，数据挂载 `./data`。HTTPS 反向代理使用 `SESSION_COOKIE_SECURE=true`。
+
+NAS 配置见 `deploy/compose.nas.yaml`，使用独立 `exercise` 项目、`exercise-app` 容器及预构建的 AMD64 版本化镜像；服务端只保留运行配置和 `data/`。`EXERCISE_BIND_HOST` 由部署环境设置，避免默认向所有网卡开放。更新镜像时保留数据目录，并验证健康接口、账号登录、重启持久化及 DSM 项目归属。
 
 原应用参考源码为 MIT License；主题和基础界面样式沿用其授权，见 LICENSE。
