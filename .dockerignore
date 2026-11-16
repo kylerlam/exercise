@@ -1,0 +1,6 @@
+.git
+.runtime
+data
+tests
+__pycache__
+.DS_Store
