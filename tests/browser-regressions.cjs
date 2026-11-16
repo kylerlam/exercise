@@ -160,10 +160,27 @@ function nextDay(day) {
       assert.equal(await page.locator('#month-label').innerText(), original);
       assert.ok(await input.evaluate((element) => element.validationMessage.length > 0), `${engine}: no validation feedback for ${invalid}`);
     }
+    let releaseMonth;
+    let monthRequests = 0;
+    const monthResponse = new Promise((resolve) => { releaseMonth = resolve; });
+    await page.route('**/api/records?month=2028-02', async (route) => {
+      monthRequests++;
+      await monthResponse;
+      await route.continue();
+    });
     await input.fill('2028-02');
-    await input.press(native ? 'Tab' : 'Enter');
-    await page.waitForFunction(() => document.querySelectorAll('#calendar-grid .calendar-day:not(.outside)').length === 29);
-    assert.equal(await input.inputValue(), '2028-02');
+    await input.press('Enter');
+    await page.locator('[data-view="monthly"]').click();
+    releaseMonth();
+    assert.equal(new URL(page.url()).hash, '#monthly', 'The first navigation click after month Enter must work');
+    await page.waitForFunction(() => document.querySelectorAll('#monthly-body tr').length === 29);
+    await page.locator('#loading-state').waitFor({ state: 'hidden' });
+    assert.equal(monthRequests, 1, 'Enter followed by blur must request the month only once');
+    await page.locator('[data-view="calendar"]').click();
+    await page.locator('#calendar-view').waitFor({ state: 'visible' });
+    await input.evaluate((element) => element.dispatchEvent(new Event('change', { bubbles: true })));
+    await page.waitForTimeout(50);
+    assert.equal(monthRequests, 1, 'The same already-loaded month must not refetch');
     await page.locator('[data-view="monthly"]').click();
     const monthly = page.locator('#monthly-month-input');
     await monthly.fill('2026-04');
@@ -175,7 +192,7 @@ function nextDay(day) {
     await snapshot(page, `${engine}-month-picker-320`);
     await context.close();
   }
-  pass('Native or visible text month pickers reject invalid months/year bounds and navigate real leap/30-day months');
+  pass('Month pickers reject invalid values; Enter followed by the first navigation click works with one month request');
 
   {
     const { context, page } = await session();
