@@ -10,7 +10,7 @@
 - Serialize launcher operations and retain separate process ownership for each port.
 - Return a valid error for malformed request URLs and safely reject malformed health responses.
 - Add an isolated Cloudflare Pages demo with fictional browser-local data, daily Hong Kong reset, concurrent-tab protection, and explicit reset controls.
-- Add regression tests and GitHub Actions checks.
+- Add isolated browser, backend, launcher, model, and demo regression tests.
 
 ## 0.1.0 — 2026-11-16
 
