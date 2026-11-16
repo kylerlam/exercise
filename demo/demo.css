@@ -1,0 +1,5 @@
+.demo-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; padding: 14px 18px; margin-bottom: 24px; color: var(--muted); font-size: 14px; }
+.demo-banner > p { flex: 1 1 300px; margin: 0; line-height: 1.7; }
+.demo-banner .button { min-height: 36px; padding: 7px 12px; font-size: 14px; }
+.demo-banner > .demo-storage-error { flex-basis: 100%; color: var(--danger-text); }
+@media (max-width: 480px) { .demo-banner { padding: 12px 14px; gap: 8px; } }
