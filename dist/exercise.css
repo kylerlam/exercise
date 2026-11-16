@@ -13,6 +13,10 @@
 .calendar-day { gap: 3px; padding-left: 3px; padding-right: 3px; }
 .calendar-workout { font-size: 10px; line-height: 1.5; color: var(--muted); display: block; min-height: 15px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .calendar-day.outside .calendar-workout { opacity: .5; }
+.month-picker.is-fallback { display: inline-block; line-height: normal; }
+.month-picker.is-fallback:focus-within { outline: none; }
+.month-picker.is-fallback > span { display: none; }
+.month-picker.is-fallback input { position: static; inset: auto; display: block; opacity: 1; width: 155px; max-width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--input-bg); color: var(--text); font: inherit; font-size: 18px; line-height: 1.4; font-variant-numeric: tabular-nums; }
 .record-type-icon { display: grid; place-items: center; width: 27px; min-width: 27px; height: 29px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); margin-top: 2px; }
 .record-type-icon.cardio { background: #bb8a4a14; color: #ad7e3e; }
 .record-type-icon svg { width: 18px; height: 18px; }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — 2026-11-17
+
+- Show a usable YYYY-MM month field when a browser does not support native month pickers, including Safari/WebKit.
+- Reject invalid or out-of-range months without changing the selected date or crashing calendar rendering.
+- Add actual WebKit regression coverage alongside the existing Chromium mobile tests.
+
 ## 0.1.1 — 2026-11-17
 
 - Align strength and cardio inputs across mobile layouts and languages, including wrapped Optional labels; prevent English and Spanish navigation text from overlapping.

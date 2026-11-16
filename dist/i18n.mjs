@@ -38,16 +38,19 @@ const tw = {...cn,
 };
 const es = {...en,documentTitle:'Exercise · Diario de entrenamiento',homeLabel:'Inicio de Exercise',tagline:'Un espacio para cada entrenamiento.',newRecord:'Nuevo registro',records:'Registro diario',calendar:'Calendario',monthly:'Resumen mensual',exportData:'Exportar datos',recordsSubtitle:'Registra cada movimiento, un día a la vez.',calendarSubtitle:'Elige un día y revisa tu entrenamiento.',monthlySubtitle:'Todo tu mes, en un diario continuo.',settings:'Ajustes',appearance:'Apariencia',language:'Idioma',freshThemes:'Fresco y sencillo',glassTheme:'Cristal',gradientThemes:'Degradados',account:'Cuenta',signOut:'Cerrar sesión',username:'Usuario',password:'Contraseña',currentPassword:'Contraseña actual',newPassword:'Nueva contraseña',saveAccount:'Guardar cuenta',saving:'Guardando…',loginTitle:'Bienvenido a Exercise',loginSubtitle:'Un espacio tranquilo para tu entrenamiento.',signIn:'Iniciar sesión',signingIn:'Iniciando sesión…',today:'Hoy',previousMonth:'Mes anterior',nextMonth:'Mes siguiente',chooseMonth:'Elegir mes',chooseDate:'Elegir fecha',strength:'Fuerza',cardio:'Cardio',day:'Fecha',bodyPart:'Parte del cuerpo',exercise:'Ejercicio',sets:'Series',reps:'Repeticiones',duration:'Duración (min)',distance:'Distancia (km)',notes:'Notas',optional:'Opcional',type:'Tipo de entrenamiento',addStrength:'Añadir fuerza',addCardio:'Añadir cardio',editRecord:'Editar registro',deleteRecord:'Eliminar registro',saveRecord:'Guardar registro',cancel:'Cancelar',closeDialog:'Cerrar',noRecords:'Sin registros',recordsCount:'{count} registros',trainingDays:'Días de entrenamiento',totalSets:'Series de fuerza',totalReps:'Repeticiones totales',cardioMinutes:'Minutos de cardio',monthlyTitle:'Registro mensual de entrenamiento',trainingRecord:'Entrenamiento',monthEmpty:'Sin entrenamiento registrado',saved:'Registro guardado.',deleted:'Registro eliminado.',deleteTitle:'¿Eliminar este registro?',keepRecord:'Conservar registro'};
 Object.assign(en, {
+  invalidMonth: 'Use YYYY-MM, with a year from 1900 to 9998 and a month from 01 to 12.',
   signInNewTab: 'Sign in in a new tab',
   sessionExpiredDraftRetained: 'Your session expired. Your draft is kept here. Sign in in a new tab, then return and save again.',
   draftRestored: 'Your unsaved training record has been restored.',
 });
 Object.assign(cn, {
+  invalidMonth: '请输入 YYYY-MM，年份为 1900 至 9998，月份为 01 至 12。',
   signInNewTab: '在新标签页登录',
   sessionExpiredDraftRetained: '登录已过期，草稿仍保留在这里。请在新标签页登录，再回到这里保存。',
   draftRestored: '尚未保存的训练草稿已恢复。',
 });
 Object.assign(tw, {
+  invalidMonth: '請輸入 YYYY-MM，年份為 1900 至 9998，月份為 01 至 12。',
   signInNewTab: '在新分頁登入',
   sessionExpiredDraftRetained: '登入已過期，草稿仍保留在這裡。請在新分頁登入，再回到這裡儲存。',
   draftRestored: '尚未儲存的訓練草稿已恢復。',
@@ -58,6 +61,7 @@ Object.assign(tw, {
   'themes.white': '純白',
 });
 Object.assign(es, {
+  invalidMonth: 'Usa AAAA-MM, con un año entre 1900 y 9998 y un mes entre 01 y 12.',
   navigationLabel: 'Navegación principal',
   newPasswordHint: 'Al menos 8 caracteres. Deja el campo vacío para mantener tu contraseña actual.',
   accountChangeHint: 'Cambiar tu usuario o contraseña cierra la sesión en todos los dispositivos. Vuelve a iniciar sesión con tus nuevas credenciales.',

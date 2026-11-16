@@ -67,6 +67,7 @@ node scripts/check.mjs
 
 ```sh
 PLAYWRIGHT_MODULE=/path/to/playwright CHROMIUM_PATH=/path/to/chromium node tests/browser-regressions.cjs
+BROWSER_ENGINE=webkit PLAYWRIGHT_MODULE=/path/to/playwright WEBKIT_PATH=/path/to/pw_run.sh node tests/browser-regressions.cjs
 ```
 
 覆盖手机布局的四种语言、Optional 标签对齐、并发冲突恢复、跨午夜 Today、过期会话草稿恢复和存储受限场景。后端、模型、Demo 数据及静态检查均可直接在本机运行，无需安装运行依赖。

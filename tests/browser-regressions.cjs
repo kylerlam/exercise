@@ -1,5 +1,6 @@
 /* Uses an existing Playwright installation; never installs packages or browsers.
  * PLAYWRIGHT_MODULE=/path/to/playwright CHROMIUM_PATH=/path/to/chromium node tests/browser-regressions.cjs
+ * BROWSER_ENGINE=webkit WEBKIT_PATH=/path/to/pw_run.sh selects cached WebKit instead.
  * Optional EXERCISE_QA_OUTPUT=/tmp/exercise-qa retains screenshots. All data is temporary.
  */
 const assert = require('node:assert/strict');
@@ -7,7 +8,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium, webkit } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const engine = process.env.BROWSER_ENGINE || 'chromium';
+assert.ok(['chromium', 'webkit'].includes(engine), 'BROWSER_ENGINE must be chromium or webkit');
 const root = path.resolve(__dirname, '..');
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'exercise-browser-'));
 const output = process.env.EXERCISE_QA_OUTPUT;
@@ -88,7 +91,8 @@ function nextDay(day) {
 
 (async () => {
   base = await launchServer();
-  browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
+  const executable = engine === 'webkit' ? process.env.WEBKIT_PATH : process.env.CHROMIUM_PATH;
+  browser = await (engine === 'webkit' ? webkit : chromium).launch({ headless: true, ...(executable ? { executablePath: executable } : {}) });
   const localeSource = fs.readFileSync(path.join(root, 'dist', 'i18n.mjs'), 'utf8') + '\nexport { en, cn, tw, es };';
   const dictionaries = await import('data:text/javascript;base64,' + Buffer.from(localeSource).toString('base64'));
   const sharedTerms = new Set(['cardio', 'minuteUnit', 'kmUnit', 'themes.aurora']);
@@ -133,6 +137,45 @@ function nextDay(day) {
     }
   }
   pass('Complete locale copy and 12 locale/width combinations: aligned inputs/labels, grouped Optional, wrapping nav, no form/document overflow');
+
+  {
+    const { context, page } = await session();
+    await page.locator('[data-view="calendar"]').click();
+    await page.locator('#calendar-view').waitFor({ state: 'visible' });
+    const input = page.locator('#month-input');
+    const native = await input.evaluate((element) => element.type === 'month');
+    if (engine === 'webkit') assert.equal(native, false, 'Cached WebKit should exercise the real unsupported month-input path');
+    const appearance = await input.evaluate((element) => ({ fallback: element.closest('.month-picker').classList.contains('is-fallback'), opacity: getComputedStyle(element).opacity, placeholder: element.placeholder, span: getComputedStyle(element.previousElementSibling).display, width: element.getBoundingClientRect().width, labelWidth: element.closest('.month-picker').getBoundingClientRect().width }));
+    assert.equal(appearance.fallback, !native);
+    assert.equal(appearance.opacity, native ? '0' : '1');
+    if (!native) {
+      assert.equal(appearance.placeholder, 'YYYY-MM');
+      assert.equal(appearance.span, 'none');
+      assert.ok(Math.abs(appearance.width - appearance.labelWidth) <= 1);
+    }
+    const original = await page.locator('#month-label').innerText();
+    for (const invalid of ['2026-99', '2026-00', '1899-12', '9999-01']) {
+      if (native) await input.evaluate((element, value) => { element.value = value; element.dispatchEvent(new Event('change', { bubbles: true })); }, invalid);
+      else { await input.fill(invalid); await input.press('Enter'); }
+      assert.equal(await page.locator('#month-label').innerText(), original);
+      assert.ok(await input.evaluate((element) => element.validationMessage.length > 0), `${engine}: no validation feedback for ${invalid}`);
+    }
+    await input.fill('2028-02');
+    await input.press(native ? 'Tab' : 'Enter');
+    await page.waitForFunction(() => document.querySelectorAll('#calendar-grid .calendar-day:not(.outside)').length === 29);
+    assert.equal(await input.inputValue(), '2028-02');
+    await page.locator('[data-view="monthly"]').click();
+    const monthly = page.locator('#monthly-month-input');
+    await monthly.fill('2026-04');
+    await monthly.press(native ? 'Tab' : 'Enter');
+    await page.waitForFunction(() => document.querySelectorAll('#monthly-body tr').length === 30);
+    assert.equal(await monthly.evaluate((element) => element.checkValidity()), true);
+    await page.setViewportSize({ width: 320, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+    await snapshot(page, `${engine}-month-picker-320`);
+    await context.close();
+  }
+  pass('Native or visible text month pickers reject invalid months/year bounds and navigate real leap/30-day months');
 
   {
     const { context, page } = await session();
