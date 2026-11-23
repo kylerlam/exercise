@@ -48,6 +48,7 @@ Object.assign(en, {
 });
 Object.assign(cn, {
   weight: '重量 (kg)',
+  kgUnit: 'kg',
   weightError: '请输入大于 0 且不超过 10,000 的公斤数，或留空。',
   invalidMonth: '请输入 YYYY-MM，年份为 1900 至 9998，月份为 01 至 12。',
   signInNewTab: '在新标签页登录',
@@ -56,6 +57,7 @@ Object.assign(cn, {
 });
 Object.assign(tw, {
   weight: '重量 (kg)',
+  kgUnit: 'kg',
   weightError: '請輸入大於 0 且不超過 10,000 的公斤數，或留空。',
   invalidMonth: '請輸入 YYYY-MM，年份為 1900 至 9998，月份為 01 至 12。',
   signInNewTab: '在新分頁登入',
