@@ -53,7 +53,8 @@ test('sets and reps accept only positive whole-number input within the limit', (
 });
 
 test('payloads preserve numeric JSON types and clear fields from the other training type', () => {
-  const values = { day: '2026-11-16', type: 'strength', bodyPart: ' 腿 ', exercise: ' 深蹲 ', sets: '4', reps: '15', duration: '30.5', distance: '', notes: ' 今天 ' };
-  assert.deepEqual(recordPayload(values), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, duration: null, distance: null, notes: '今天' });
-  assert.deepEqual(recordPayload({ ...values, type: 'cardio' }), { day: '2026-11-16', type: 'cardio', bodyPart: '', exercise: '深蹲', sets: null, reps: null, duration: 30.5, distance: null, notes: '今天' });
+  const values = { day: '2026-11-16', type: 'strength', bodyPart: ' 腿 ', exercise: ' 深蹲 ', sets: '4', reps: '15', weight: '60', duration: '30.5', distance: '', notes: ' 今天 ' };
+  assert.deepEqual(recordPayload(values), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, weight: 60, duration: null, distance: null, notes: '今天' });
+  assert.deepEqual(recordPayload({ ...values, weight: '' }), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, weight: null, duration: null, distance: null, notes: '今天' });
+  assert.deepEqual(recordPayload({ ...values, type: 'cardio' }), { day: '2026-11-16', type: 'cardio', bodyPart: '', exercise: '深蹲', sets: null, reps: null, weight: null, duration: 30.5, distance: null, notes: '今天' });
 });
