@@ -7,6 +7,7 @@ import http.client
 import json
 from pathlib import Path
 import socket
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -62,6 +63,17 @@ class ValidationTests(unittest.TestCase):
                       cardio(bodyPart="腿"), strength(type="unknown"), strength(type=["strength"])):
             with self.subTest(value=value), self.assertRaises(RequestError):
                 validate_record(value)
+
+    def test_weight_is_optional_and_bounded_for_strength(self):
+        self.assertIsNone(validate_record(strength())["weight"])
+        self.assertEqual(validate_record(strength(weight=60))["weight"], 60)
+        self.assertEqual(validate_record(strength(weight=62.5))["weight"], 62.5)
+        self.assertIsNone(validate_record(strength(weight=None))["weight"])
+        for value in (0, -1, "60", True, float("inf"), float("nan"), 10001, 10 ** 400):
+            with self.subTest(value=value), self.assertRaises(RequestError):
+                validate_record(strength(weight=value))
+        with self.assertRaises(RequestError):
+            validate_record(cardio(weight=60))
 
     def test_unknown_fields_and_non_objects(self):
         for value in ([], None, {**strength(), "owner": "someone"}, {**strength(), "id": 1}):
@@ -135,6 +147,31 @@ class StoreTests(unittest.TestCase):
         self.store.update_account({"username": "trainer", "current_password": "admin123"})
         self.assertFalse(self.store.show_default_credentials())
         self.assertEqual(self.store.login({"username": "trainer", "password": "admin123"})[1]["username"], "trainer")
+
+    def test_weight_persists_and_clears_between_record_types(self):
+        record = self.store.create(strength(weight=60))
+        self.assertEqual(record["weight"], 60)
+        self.assertEqual(self.store.month("2026-11")["records"][0]["weight"], 60)
+        cleared = self.store.patch(record["id"], {**strength(), "version": 1})
+        self.assertIsNone(cleared["weight"])
+        to_cardio = self.store.patch(record["id"], {**cardio(), "version": 2})
+        self.assertIsNone(to_cardio["weight"])
+
+    def test_opens_and_migrates_a_database_without_the_weight_column(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "exercise.sqlite3"
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("""CREATE TABLE records (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL, type TEXT NOT NULL, bodyPart TEXT NOT NULL, exercise TEXT NOT NULL,
+                sets INTEGER, reps INTEGER, duration REAL, distance REAL, notes TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+            db.execute("""INSERT INTO records (day,type,bodyPart,exercise,sets,reps,notes,created_at,updated_at)
+                VALUES('2026-11-16','strength','腿','深蹲',4,15,'','2026-11-16T00:00:00','2026-11-16T00:00:00')""")
+            db.commit()
+        store = Store(directory.name, clock=lambda: self.now)
+        self.assertIsNone(store.month("2026-11")["records"][0]["weight"])
+        self.assertEqual(store.create(strength(weight=72.5))["weight"], 72.5)
 
     def test_month_filtering_leap_day_and_boundaries(self):
         for day in ("2024-02-29", "2024-03-01", "9998-12-31"):
@@ -278,6 +315,15 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("DELETE", f'/api/records/{record["id"]}', {"version": 1})[0], 409)
         self.assertEqual(self.request("DELETE", f'/api/records/{record["id"]}', {"version": 2})[0], 200)
         self.assertEqual(self.request("DELETE", "/api/records/999", {"version": 1})[0], 404)
+
+    def test_weight_round_trips_through_http(self):
+        self.login()
+        status, _, body = self.request("POST", "/api/records", strength(weight=80))
+        self.assertEqual(status, 201)
+        self.assertEqual(body["record"]["weight"], 80)
+        self.assertEqual(self.request("POST", "/api/records", strength(weight=0))[0], 400)
+        self.assertEqual(self.request("POST", "/api/records", cardio(weight=50))[0], 400)
+        self.assertEqual(self.request("GET", "/api/records?month=2026-11")[2]["records"][0]["weight"], 80)
 
     def test_http_huge_numeric_cardio_fields_return_validation_error(self):
         self.login()
