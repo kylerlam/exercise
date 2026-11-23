@@ -11,7 +11,7 @@ export function initSettings(user = null) {
   dialog.setAttribute('aria-labelledby', 'settings-title');
   dialog.innerHTML = `
     <div class="dialog-heading">
-      <h2 id="settings-title"><span data-i18n="settings"></span> <code class="settings-version">v0.1.3</code></h2>
+      <h2 id="settings-title"><span data-i18n="settings"></span> <code class="settings-version">v0.1.4</code></h2>
       <button class="icon-button" id="close-settings" type="button" data-i18n-aria-label="closeSettings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
     </div>
     <section class="preferences-section">

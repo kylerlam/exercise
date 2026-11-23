@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.4"
 COOKIE = "exercise_session"
 SESSION_SECONDS = 30 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 600_000

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4 — 2026-11-23
+
+- Record an optional weight (kg, up to 10000) on strength entries, shown in its own column and in the calendar, day, and monthly shorthand (e.g. 腿：深蹲 60kg × 4 × 15). Cardio still rejects weight; existing databases are migrated non-destructively.
+- Mirror the weight field in the Cloudflare Pages demo's browser-local store.
+
 ## 0.1.3 — 2026-11-17
 
 - Keep the first navigation click reliable after committing a text month field; Enter and blur no longer trigger duplicate month reloads.
