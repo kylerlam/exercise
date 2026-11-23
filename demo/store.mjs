@@ -1,4 +1,4 @@
-export const DEMO_STORAGE_KEY = 'exercise-demo-v1';
+export const DEMO_STORAGE_KEY = 'exercise-demo-v2';
 export const DEMO_LOCK = 'exercise-demo-write';
 
 function fail(code, status = 400) {
@@ -37,14 +37,14 @@ function validDate(value) {
   return value;
 }
 
-const RECORD_FIELDS = ['day', 'type', 'bodyPart', 'exercise', 'sets', 'reps', 'duration', 'distance', 'notes'];
+const RECORD_FIELDS = ['day', 'type', 'bodyPart', 'exercise', 'sets', 'reps', 'weight', 'duration', 'distance', 'notes'];
 function validateRecord(data, editing = false) {
   fields(data, [...RECORD_FIELDS, ...(editing ? ['version'] : [])]);
   const record = {
     day: validDate(data.day), type: data.type,
     bodyPart: text(data.bodyPart === undefined ? '' : data.bodyPart, 'BODY_PART', 0, 60).trim(),
     exercise: text(data.exercise, 'EXERCISE', 1, 100).trim(),
-    sets: data.sets ?? null, reps: data.reps ?? null,
+    sets: data.sets ?? null, reps: data.reps ?? null, weight: data.weight ?? null,
     duration: data.duration ?? null, distance: data.distance ?? null,
     notes: text(data.notes === undefined ? '' : data.notes, 'NOTES', 0, 2000),
   };
@@ -53,9 +53,10 @@ function validateRecord(data, editing = false) {
     if (!record.bodyPart) fail('INVALID_BODY_PART');
     integer(record.sets, 'SETS');
     integer(record.reps, 'REPS');
+    if (record.weight !== null) positive(record.weight, 'WEIGHT', 10000);
     if (record.duration !== null || record.distance !== null) fail('INVALID_STRENGTH');
   } else if (record.type === 'cardio') {
-    if (record.bodyPart || record.sets !== null || record.reps !== null) fail('INVALID_CARDIO');
+    if (record.bodyPart || record.sets !== null || record.reps !== null || record.weight !== null) fail('INVALID_CARDIO');
     positive(record.duration, 'DURATION', 10080);
     if (record.distance !== null) positive(record.distance, 'DISTANCE', 100000);
   } else fail('INVALID_TYPE');
@@ -94,7 +95,7 @@ function examples(now, nextId) {
   for (const input of [
     { day: offset(-3), type: 'strength', bodyPart: 'Back', exercise: 'Demo row', sets: 3, reps: 12 },
     { day: offset(-1), type: 'cardio', exercise: 'Demo cycling', duration: 25, distance: 7.5 },
-    { day, type: 'strength', bodyPart: 'Legs', exercise: 'Demo squat', sets: 4, reps: 15 },
+    { day, type: 'strength', bodyPart: 'Legs', exercise: 'Demo squat', sets: 4, reps: 15, weight: 60 },
     { day, type: 'cardio', exercise: 'Demo walk', duration: 30, distance: 2.5 },
   ]) state.records.push({ ...validateRecord({ ...input, notes: 'Fictional sample. Edit freely or reset this demo.' }), id: state.nextId++, version: 1, created_at: at, updated_at: at });
   return state;

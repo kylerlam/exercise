@@ -93,6 +93,17 @@ test('cardio accepts decimal duration/distance and rejects invalid type mixtures
   await assert.rejects(write(store, '/api/records', input({ duration: 30 })), error('INVALID_STRENGTH'));
 });
 
+test('strength weight is optional and bounded while cardio rejects it', async () => {
+  const { store } = fixture();
+  assert.equal((await write(store, '/api/records', input({ weight: 60 }))).record.weight, 60);
+  assert.equal((await write(store, '/api/records', input())).record.weight, null);
+  for (const value of [0, -1, true, '60', 10001]) {
+    await assert.rejects(write(store, '/api/records', input({ weight: value })), error('INVALID_WEIGHT'));
+  }
+  const cardio = { day: '2026-11-17', type: 'cardio', exercise: 'Test run', duration: 20, weight: 50 };
+  await assert.rejects(write(store, '/api/records', cardio), error('INVALID_CARDIO'));
+});
+
 test('real dates, month queries, unknown fields and malformed JSON are checked', async () => {
   const { store } = fixture();
   for (const day of ['2026-02-29', '2026-11-31', '1899-12-31', '9999-01-01']) await assert.rejects(write(store, '/api/records', input({ day })), error('INVALID_DATE'));

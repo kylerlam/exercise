@@ -23,12 +23,12 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.4"
 COOKIE = "exercise_session"
 SESSION_SECONDS = 30 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 600_000
 MAX_BODY = 32_768
-RECORD_FIELDS = {"day", "type", "bodyPart", "exercise", "sets", "reps", "duration", "distance", "notes"}
+RECORD_FIELDS = {"day", "type", "bodyPart", "exercise", "sets", "reps", "weight", "duration", "distance", "notes"}
 
 
 class RequestError(Exception):
@@ -93,7 +93,7 @@ def validate_record(data, editing=False):
         "type": data.get("type"),
         "bodyPart": text(data.get("bodyPart", ""), "BODY_PART", maximum=60).strip(),
         "exercise": text(data.get("exercise"), "EXERCISE", 1, 100).strip(),
-        "sets": data.get("sets"), "reps": data.get("reps"),
+        "sets": data.get("sets"), "reps": data.get("reps"), "weight": data.get("weight"),
         "duration": data.get("duration"), "distance": data.get("distance"),
         "notes": text(data.get("notes", ""), "NOTES", maximum=2000),
     }
@@ -104,10 +104,12 @@ def validate_record(data, editing=False):
             raise RequestError("Enter a body part.", code="INVALID_BODY_PART")
         integer(record["sets"], "SETS")
         integer(record["reps"], "REPS")
+        if record["weight"] is not None:
+            positive_number(record["weight"], "WEIGHT", 10_000)
         if record["duration"] is not None or record["distance"] is not None:
             raise RequestError("Strength records use sets and reps, without cardio fields.", code="INVALID_STRENGTH")
     elif record["type"] == "cardio":
-        if record["bodyPart"] or record["sets"] is not None or record["reps"] is not None:
+        if record["bodyPart"] or record["sets"] is not None or record["reps"] is not None or record["weight"] is not None:
             raise RequestError("Cardio records use duration and optional distance.", code="INVALID_CARDIO")
         positive_number(record["duration"], "DURATION", 10_080)
         if record["distance"] is not None:
@@ -157,19 +159,23 @@ class Store:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     day TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('strength', 'cardio')),
                     bodyPart TEXT NOT NULL, exercise TEXT NOT NULL,
-                    sets INTEGER, reps INTEGER, duration REAL, distance REAL,
+                    sets INTEGER, reps INTEGER, weight REAL, duration REAL, distance REAL,
                     notes TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
                     CHECK ((type = 'strength' AND length(bodyPart) > 0
                         AND typeof(sets) = 'integer' AND sets BETWEEN 1 AND 10000
                         AND typeof(reps) = 'integer' AND reps BETWEEN 1 AND 10000
+                        AND (weight IS NULL OR (weight > 0 AND weight <= 10000))
                         AND duration IS NULL AND distance IS NULL)
                         OR (type = 'cardio' AND bodyPart = '' AND sets IS NULL AND reps IS NULL
+                        AND weight IS NULL
                         AND duration > 0 AND duration <= 10080
                         AND (distance IS NULL OR (distance > 0 AND distance <= 100000))))
                 );
                 CREATE INDEX IF NOT EXISTS records_day ON records(day, id);
             """)
+            if not any(row[1] == "weight" for row in db.execute("PRAGMA table_info(records)")):
+                db.execute("ALTER TABLE records ADD COLUMN weight REAL")
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT 1 FROM accounts WHERE id=1").fetchone() is None:
                 salt = secrets.token_hex(16)
@@ -280,8 +286,8 @@ class Store:
             self.require_session(db, token)
             now = self.now()
             record_id = db.execute("""INSERT INTO records
-                (day,type,bodyPart,exercise,sets,reps,duration,distance,notes,created_at,updated_at)
-                VALUES(:day,:type,:bodyPart,:exercise,:sets,:reps,:duration,:distance,:notes,:created_at,:updated_at)""",
+                (day,type,bodyPart,exercise,sets,reps,weight,duration,distance,notes,created_at,updated_at)
+                VALUES(:day,:type,:bodyPart,:exercise,:sets,:reps,:weight,:duration,:distance,:notes,:created_at,:updated_at)""",
                                    {**record, "created_at": now, "updated_at": now}).lastrowid
             return self.record(db, record_id)
 
@@ -295,7 +301,7 @@ class Store:
                 raise RequestError("This record changed on another screen. Refresh and try again.", 409, "RECORD_CHANGED")
             values = {**record, "id": record_id, "updated_at": self.now()}
             db.execute("""UPDATE records SET day=:day,type=:type,bodyPart=:bodyPart,exercise=:exercise,
-                sets=:sets,reps=:reps,duration=:duration,distance=:distance,notes=:notes,
+                sets=:sets,reps=:reps,weight=:weight,duration=:duration,distance=:distance,notes=:notes,
                 version=version+1,updated_at=:updated_at WHERE id=:id""", values)
             return self.record(db, record_id)
 

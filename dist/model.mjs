@@ -61,6 +61,7 @@ export function recordPayload(values) {
     exercise: values.exercise.trim(),
     sets: strength ? Number(values.sets) : null,
     reps: strength ? Number(values.reps) : null,
+    weight: strength && values.weight !== '' ? Number(values.weight) : null,
     duration: strength ? null : Number(values.duration),
     distance: strength || values.distance === '' ? null : Number(values.distance),
     notes: values.notes.trim(),

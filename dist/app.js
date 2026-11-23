@@ -63,7 +63,7 @@ function dayRecords(day = selectedDay) {
   return records.filter((record) => record.day === day);
 }
 function compactDescription(record) {
-  if (record.type === 'strength') return `${record.bodyPart}：${record.exercise} × ${record.sets} × ${record.reps}`;
+  if (record.type === 'strength') return `${record.bodyPart}：${record.exercise}${record.weight == null ? '' : ` ${number(record.weight)}${t('kgUnit')}`} × ${record.sets} × ${record.reps}`;
   return `${record.exercise} · ${number(record.duration)} ${t('minuteUnit')}${record.distance === null ? '' : ` · ${number(record.distance)} ${t('kmUnit')}`}`;
 }
 function showToast(message, error = false) {
@@ -249,7 +249,7 @@ function renderRecordTable(target, rows, type) {
   const table = element('table', 'record-table ' + type + '-table');
   const head = element('thead');
   const header = element('tr');
-  const keys = type === 'strength' ? ['bodyPart', 'exercise', 'sets', 'reps'] : ['exercise', 'duration', 'distance'];
+  const keys = type === 'strength' ? ['bodyPart', 'exercise', 'weight', 'sets', 'reps'] : ['exercise', 'duration', 'distance'];
   for (const key of keys) {
     const th = element('th', '', t(key));
     th.scope = 'col';
@@ -266,7 +266,7 @@ function renderRecordTable(target, rows, type) {
   for (const record of rows) {
     const row = element('tr');
     for (const key of keys) {
-      const cell = element('td', ['sets', 'reps', 'duration', 'distance'].includes(key) ? 'numeric-cell' : '');
+      const cell = element('td', ['weight', 'sets', 'reps', 'duration', 'distance'].includes(key) ? 'numeric-cell' : '');
       const value = record[key];
       cell.append(element('span', '', value === null ? '—' : typeof value === 'number' ? number(value) : value));
       if (key === 'exercise' && record.notes) cell.append(element('p', 'table-notes', record.notes));
@@ -363,6 +363,7 @@ function entryValues() {
     exercise: $(type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value,
     sets: $('#entry-sets').value,
     reps: $('#entry-reps').value,
+    weight: $('#entry-weight').value,
     duration: $('#entry-duration').value,
     distance: $('#entry-distance').value,
     notes: $('#entry-notes').value,
@@ -375,7 +376,7 @@ function syncTypeFields() {
   const strength = $('#entry-type').value === 'strength';
   $('#strength-fields').hidden = !strength;
   $('#cardio-fields').hidden = strength;
-  for (const input of $('#strength-fields').querySelectorAll('input')) { input.disabled = !strength; input.required = strength; }
+  for (const input of $('#strength-fields').querySelectorAll('input')) { input.disabled = !strength; input.required = strength && input.id !== 'entry-weight'; }
   for (const input of $('#cardio-fields').querySelectorAll('input')) { input.disabled = strength; input.required = !strength && input.id !== 'entry-distance'; }
 }
 function openRecord(record = null, type = 'strength') {
@@ -389,6 +390,7 @@ function openRecord(record = null, type = 'strength') {
   $('#entry-cardio-exercise').value = record?.type === 'cardio' ? record.exercise : '';
   $('#entry-sets').value = record?.sets ?? '';
   $('#entry-reps').value = record?.reps ?? '';
+  $('#entry-weight').value = record?.weight ?? '';
   $('#entry-duration').value = record?.duration ?? '';
   $('#entry-distance').value = record?.distance ?? '';
   $('#entry-notes').value = record?.notes || '';
@@ -411,7 +413,7 @@ async function restoreRecordDraft() {
   selectedDay = values.day;
   month = values.day.slice(0, 7);
   openRecord(draft.editing ? { ...values, ...draft.editing } : null, values.type);
-  for (const [key, id] of Object.entries({ day: 'entry-day', bodyPart: 'entry-body', sets: 'entry-sets', reps: 'entry-reps', duration: 'entry-duration', distance: 'entry-distance', notes: 'entry-notes' })) {
+  for (const [key, id] of Object.entries({ day: 'entry-day', bodyPart: 'entry-body', sets: 'entry-sets', reps: 'entry-reps', weight: 'entry-weight', duration: 'entry-duration', distance: 'entry-distance', notes: 'entry-notes' })) {
     $('#' + id).value = values[key] ?? '';
   }
   $(values.type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value = values.exercise ?? '';
@@ -436,6 +438,7 @@ recordForm.addEventListener('submit', async (event) => {
   if (values.type === 'strength' && (!positiveInteger(values.sets) || !positiveInteger(values.reps))) validation = 'integerError';
   if (values.type === 'cardio' && !(Number(values.duration) > 0 && Number.isFinite(Number(values.duration)) && Number(values.duration) <= 10080)) validation = 'durationError';
   if (values.type === 'cardio' && values.distance !== '' && !(Number(values.distance) > 0 && Number.isFinite(Number(values.distance)) && Number(values.distance) <= 100000)) validation = 'distanceError';
+  if (values.type === 'strength' && values.weight !== '' && !(Number(values.weight) > 0 && Number.isFinite(Number(values.weight)) && Number(values.weight) <= 10000)) validation = 'weightError';
   $('#record-error').hidden = !validation;
   $('#record-reauth').hidden = true;
   if (validation) { $('#record-error').textContent = t(validation); return; }

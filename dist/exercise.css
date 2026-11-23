@@ -41,9 +41,9 @@
 .record-table th:first-child, .record-table td:first-child { padding-left: 26px; }
 .record-table th:last-child, .record-table td:last-child { padding-right: 20px; }
 .record-table th:last-child { width: 90px; }
-.strength-table th:first-child { width: 18%; }
-.strength-table th:nth-child(2) { width: 38%; }
-.strength-table th:nth-child(3), .strength-table th:nth-child(4) { width: 13%; }
+.strength-table th:first-child { width: 16%; }
+.strength-table th:nth-child(2) { width: 32%; }
+.strength-table th:nth-child(3), .strength-table th:nth-child(4), .strength-table th:nth-child(5) { width: 12%; }
 .cardio-table th:first-child { width: 40%; }
 .numeric-cell { font-variant-numeric: tabular-nums; }
 .table-notes { margin: 6px 0 0; font-size: 13px; font-weight: 400; color: var(--muted); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -79,7 +79,7 @@
 .monthly-record .table-notes { margin-top: 3px; }
 .record-dialog { width: min(760px, calc(100vw - 32px)); }
 .record-form-top { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-.strength-fields { display: grid; grid-template-columns: 1fr 1.7fr .7fr .7fr; gap: 12px; }
+.strength-fields { display: grid; grid-template-columns: 1fr 1.6fr .8fr .6fr .6fr; gap: 12px; }
 .cardio-fields { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 12px; }
 .record-dialog .field { min-width: 0; }
 .record-dialog .field-label { display: block; line-height: 1.5; overflow-wrap: anywhere; }
@@ -126,7 +126,7 @@
   .monthly-record + .monthly-record { margin-top: 13px; }
   .month-empty { font-size: 12px; }
   .record-form-top { gap: 12px; }
-  .strength-fields { grid-template-columns: 1fr 1.3fr .75fr .75fr; gap: 8px; }
+  .strength-fields { grid-template-columns: 1fr 1.2fr .9fr .6fr .6fr; gap: 8px; }
   .cardio-fields { grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; }
   .record-dialog .field { font-size: 13px; margin-bottom: 17px; }
   .record-dialog .field input, .record-dialog .field select { font-size: 16px; padding: 10px 8px; }
@@ -139,9 +139,10 @@
 }
 @media (max-width: 540px) {
   .record-form-top { grid-template-columns: 1fr; gap: 0; }
-  #entry-sets, #entry-reps { appearance: textfield; -moz-appearance: textfield; padding-inline: 5px; font-variant-numeric: tabular-nums; }
+  #entry-sets, #entry-reps, #entry-weight { appearance: textfield; -moz-appearance: textfield; padding-inline: 5px; font-variant-numeric: tabular-nums; }
   #entry-sets::-webkit-inner-spin-button, #entry-sets::-webkit-outer-spin-button,
-  #entry-reps::-webkit-inner-spin-button, #entry-reps::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  #entry-reps::-webkit-inner-spin-button, #entry-reps::-webkit-outer-spin-button,
+  #entry-weight::-webkit-inner-spin-button, #entry-weight::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 }
 @media (max-width: 370px) {
   .topbar { padding: 0 16px; gap: 7px; }

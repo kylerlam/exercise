@@ -95,7 +95,7 @@ function nextDay(day) {
   browser = await (engine === 'webkit' ? webkit : chromium).launch({ headless: true, ...(executable ? { executablePath: executable } : {}) });
   const localeSource = fs.readFileSync(path.join(root, 'dist', 'i18n.mjs'), 'utf8') + '\nexport { en, cn, tw, es };';
   const dictionaries = await import('data:text/javascript;base64,' + Buffer.from(localeSource).toString('base64'));
-  const sharedTerms = new Set(['cardio', 'minuteUnit', 'kmUnit', 'themes.aurora']);
+  const sharedTerms = new Set(['cardio', 'minuteUnit', 'kmUnit', 'kgUnit', 'themes.aurora']);
   for (const [key, english] of Object.entries(dictionaries.en)) {
     assert.equal(typeof dictionaries.cn[key], 'string', `Missing Chinese translation: ${key}`);
     assert.equal(typeof dictionaries.tw[key], 'string', `Missing Traditional Chinese translation: ${key}`);
@@ -399,6 +399,23 @@ function nextDay(day) {
     await context.close();
   }
   pass('Type switches retain entered values; short mobile viewports keep save controls reachable');
+  {
+    const { context, page } = await session();
+    const status = await api(context, 'GET', '/api/auth/status');
+    const body = { day: status.today, type: 'strength', bodyPart: 'Legs', exercise: 'Weight regression', sets: 4, reps: 15, weight: 60, duration: null, distance: null, notes: '' };
+    const record = (await api(context, 'POST', '/api/records', body)).record;
+    assert.equal(record.weight, 60);
+    await page.reload();
+    await page.locator('#loading-state').waitFor({ state: 'hidden' });
+    const headers = await page.locator('.strength-table th').evaluateAll((cells) => cells.map((cell) => cell.textContent));
+    assert.ok(headers.includes('Weight (kg)'), `strength table missing weight header: ${headers}`);
+    const weightCell = await page.locator('.strength-table tbody tr', { hasText: 'Weight regression' }).locator('.numeric-cell').first().innerText();
+    assert.equal(weightCell.trim(), '60', `weight cell should show 60, got ${weightCell}`);
+    await api(context, 'DELETE', '/api/records/' + record.id, { version: record.version });
+    await context.close();
+  }
+  pass('Strength weight is stored, shown in its own column, and localized');
+
   assert.deepEqual(errors, []);
   pass('No uncaught browser errors');
   console.log(`Browser regressions complete: ${checks} groups passed; data was isolated.`);
