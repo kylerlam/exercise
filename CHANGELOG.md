@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 — 2026-11-23
+
+- Calendar day cells now show the trained body parts, de-duplicated in entry order (e.g. 胸·背), instead of the first exercise name plus a count; cardio-only days still show the activity name.
+
 ## 0.1.4 — 2026-11-23
 
 - Record an optional weight (kg, up to 10000) on strength entries, shown in its own column and in the calendar, day, and monthly shorthand (e.g. 腿：深蹲 60kg × 4 × 15). Cardio still rejects weight; existing databases are migrated non-destructively.
