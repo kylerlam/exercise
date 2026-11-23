@@ -188,6 +188,12 @@ function emptyState(target, full = false) {
   }
   target.append(empty);
 }
+function calendarSummary(items) {
+  const unique = (values) => [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+  const parts = unique(items.filter((row) => row.type === 'strength').map((row) => row.bodyPart));
+  return (parts.length ? parts : unique(items.map((row) => row.exercise))).join('·');
+}
+
 function renderCalendar() {
   $('#month-label').textContent = monthLabel();
   $('#month-input').value = month;
@@ -214,7 +220,7 @@ function renderCalendar() {
     if (items.some((row) => row.type === 'strength')) indicators.append(element('i', 'activity-dot strength-dot'));
     if (items.some((row) => row.type === 'cardio')) indicators.append(element('i', 'activity-dot cardio-dot'));
     button.append(indicators);
-    const summary = element('span', 'calendar-workout', items.length ? items[0].exercise + (items.length > 1 ? ` +${items.length - 1}` : '') : '');
+    const summary = element('span', 'calendar-workout', calendarSummary(items));
     summary.setAttribute('aria-hidden', 'true');
     button.append(summary);
     button.addEventListener('click', () => selectDay(day));
