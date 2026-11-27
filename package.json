@@ -1,6 +1,6 @@
 {
   "name": "exercise",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "A private fitness journal in the Daily and CirGrid family.",
