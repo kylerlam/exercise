@@ -93,7 +93,7 @@ Cloudflare Pages 使用 `exercise-demo` 项目和 `codex/demo` 生产分支。�
 docker compose up -d --build
 ```
 
-默认仍只绑定本机 `127.0.0.1:4186`，数据挂载 `./data`。HTTPS 反向代理使用 `SESSION_COOKIE_SECURE=true`（同时发送 HSTS）。经反向代理访问时，所有请求都来自代理地址；把代理地址写进 `TRUSTED_PROXY_IPS`（逗号分隔），登录限流就会改按 Cloudflare `CF-Connecting-IP` 里的真实访客地址计数，其他来源无法用这个头改变自己的计数地址。
+默认仍只绑定本机 `127.0.0.1:4186`，数据挂载 `./data`。HTTPS 反向代理使用 `SESSION_COOKIE_SECURE=true`（同时发送 HSTS）。经反向代理访问时，所有请求都来自代理地址；把代理地址写进 `TRUSTED_PROXY_IPS`（逗号分隔），代理写入的 `X-Real-IP` 属于 Cloudflare 网段时，登录限流改按 `CF-Connecting-IP` 里的真实访客地址计数；绕过 Cloudflare 直连代理的请求按它自己的 `X-Real-IP` 计数，无法用伪造的头改变计数地址。
 
 NAS 配置见 `deploy/compose.nas.yaml`，使用独立 `exercise` 项目、`exercise-app` 容器及预构建的 AMD64 版本化镜像；服务端只保留运行配置和 `data/`。`EXERCISE_BIND_HOST` 由部署环境设置，避免默认向所有网卡开放。更新镜像时保留数据目录，并验证健康接口、账号登录、重启持久化及 DSM 项目归属。
 

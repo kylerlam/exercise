@@ -5,7 +5,7 @@
 - Import: Settings sidebar gains **Import data**. It merges an Exercise JSON export (version 1 or 2, up to 5 MB): records and saved exercises that are not already present are added, existing ones are kept, and an invalid entry rejects the whole file.
 - Export now includes the saved exercise list (export format version 2).
 - Saved exercise rows link to the Gym exercise library search for a demo.
-- Login rate limiting counts the visitor address from Cloudflare's `CF-Connecting-IP` for requests from `TRUSTED_PROXY_IPS`, so other visitors' failed attempts can no longer lock out the owner.
+- Login rate limiting counts the visitor address from Cloudflare's `CF-Connecting-IP` for requests from `TRUSTED_PROXY_IPS` that arrived through a Cloudflare edge, so other visitors' failed attempts can no longer lock out the owner.
 - HTTPS deployments send HSTS. New passwords need at least 12 characters, matching the other apps.
 - Fix: Settings showed v0.1.5 instead of the running version.
 

@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from backend.server import APP_VERSION, COOKIE, SESSION_SECONDS, RequestError, Store, create_server, token_hash, validate_record
+from backend.server import APP_VERSION, COOKIE, SESSION_SECONDS, RequestError, Store, client_ip, create_server, token_hash, validate_record
 
 
 def strength(**changes):
@@ -587,6 +587,20 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/import", raw=big)[0], 200)
         self.assertEqual(self.request("POST", "/api/records", raw=json.dumps({**strength(), "notes": "x" * 40_000}))[0], 413)
 
+    def test_client_ip_trusts_cloudflare_header_only_from_cloudflare_edges(self):
+        proxies = frozenset({"192.168.1.123"})
+        cases = [
+            ("192.168.1.123", {"X-Real-IP": "162.158.1.1", "CF-Connecting-IP": "203.0.113.9"}, "203.0.113.9"),
+            ("192.168.1.123", {"X-Real-IP": "2606:4700::1", "CF-Connecting-IP": "2001:db8::5"}, "2001:db8::5"),
+            ("192.168.1.123", {"X-Real-IP": "162.158.1.1"}, "162.158.1.1"),
+            ("192.168.1.123", {"X-Real-IP": "198.51.100.7", "CF-Connecting-IP": "203.0.113.9"}, "198.51.100.7"),
+            ("192.168.1.123", {"CF-Connecting-IP": "203.0.113.9"}, "192.168.1.123"),
+            ("198.51.100.7", {"X-Real-IP": "162.158.1.1", "CF-Connecting-IP": "203.0.113.9"}, "198.51.100.7"),
+        ]
+        for peer, headers, expected in cases:
+            with self.subTest(peer=peer, headers=headers):
+                self.assertEqual(client_ip(peer, headers, proxies), expected)
+
     def test_login_limit_uses_cloudflare_address_only_behind_trusted_proxy(self):
         self.server.shutdown()
         self.server.server_close()
@@ -597,10 +611,10 @@ class HTTPTests(unittest.TestCase):
         self.thread.start()
         wrong = {"username": "admin", "password": "wrong"}
         for _ in range(10):
-            self.assertEqual(self.request("POST", "/api/auth/login", wrong, headers={"CF-Connecting-IP": "203.0.113.9"})[0], 401)
-        self.assertEqual(self.request("POST", "/api/auth/login", wrong, headers={"CF-Connecting-IP": "203.0.113.9"})[0], 429)
+            self.assertEqual(self.request("POST", "/api/auth/login", wrong, headers={"X-Real-IP": "162.158.1.1", "CF-Connecting-IP": "203.0.113.9"})[0], 401)
+        self.assertEqual(self.request("POST", "/api/auth/login", wrong, headers={"X-Real-IP": "162.158.1.1", "CF-Connecting-IP": "203.0.113.9"})[0], 429)
         self.assertEqual(self.request("POST", "/api/auth/login", {"username": "admin", "password": "admin123"},
-                                      headers={"CF-Connecting-IP": "198.51.100.4"})[0], 200)
+                                      headers={"X-Real-IP": "162.158.1.1", "CF-Connecting-IP": "198.51.100.4"})[0], 200)
         self.assertNotIn("Strict-Transport-Security", self.request("GET", "/api/health")[1])
 
     def test_https_deployment_sends_hsts(self):
