@@ -42,6 +42,9 @@ let entryBusy = false;
 let draftBaseline = '';
 let deleting = null;
 let deleteBusy = false;
+let exercises = [];
+let exercisesLoaded = false;
+let exerciseBusy = false;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -119,6 +122,142 @@ async function loadMonth() {
     }
   }
 }
+async function loadExercises() {
+  try {
+    const result = await authRequest('/api/exercises');
+    exercises = result.exercises;
+    exercisesLoaded = true;
+  } catch (error) {
+    if (handleAuthError(error)) return;
+    showPageError(error);
+  }
+  renderPresetOptions();
+  renderBodyPartOptions();
+  if (view === 'exercises') renderExercises();
+}
+function sortedExercises(type) {
+  return exercises.filter((item) => item.type === type).sort((a, b) => a.bodyPart.localeCompare(b.bodyPart, getLocale()) || a.name.localeCompare(b.name, getLocale()));
+}
+function exerciseGroups() {
+  const groups = new Map();
+  for (const item of sortedExercises('strength')) {
+    if (!groups.has(item.bodyPart)) groups.set(item.bodyPart, []);
+    groups.get(item.bodyPart).push(item);
+  }
+  const cardio = sortedExercises('cardio');
+  return { strength: groups, cardio };
+}
+function renderBodyPartOptions() {
+  const parts = [...new Set(exercises.filter((item) => item.type === 'strength').map((item) => item.bodyPart))];
+  $('#body-part-options').replaceChildren(...parts.map((part) => Object.assign(element('option'), { value: part })));
+}
+function renderPresetOptions() {
+  const select = $('#entry-preset');
+  const type = $('#entry-type').value;
+  const { strength, cardio } = exerciseGroups();
+  const available = type === 'strength' ? strength.size : cardio.length;
+  const placeholder = element('option', '', t(available ? 'presetManual' : 'presetEmpty'));
+  placeholder.value = '';
+  select.replaceChildren(placeholder);
+  if (type === 'strength') {
+    for (const [part, items] of strength) {
+      const group = element('optgroup');
+      group.label = part;
+      for (const item of items) group.append(Object.assign(element('option', '', item.name), { value: String(item.id) }));
+      select.append(group);
+    }
+  } else {
+    for (const item of cardio) select.append(Object.assign(element('option', '', item.name), { value: String(item.id) }));
+  }
+  select.disabled = entryBusy || !available;
+  matchPreset();
+}
+function matchPreset() {
+  const type = $('#entry-type').value;
+  const name = $(type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value.trim();
+  const body = type === 'strength' ? $('#entry-body').value.trim() : '';
+  const found = exercises.find((item) => item.type === type && item.name === name && item.bodyPart === body);
+  $('#entry-preset').value = found ? String(found.id) : '';
+}
+function applyPreset() {
+  const item = exercises.find((entry) => String(entry.id) === $('#entry-preset').value);
+  if (!item) return;
+  if (item.type === 'strength') {
+    $('#entry-body').value = item.bodyPart;
+    $('#entry-exercise').value = item.name;
+    $('#entry-weight').focus();
+  } else {
+    $('#entry-cardio-exercise').value = item.name;
+    $('#entry-duration').focus();
+  }
+}
+function renderExercises() {
+  const strength = $('#exercise-type').value === 'strength';
+  $('#exercise-body-field').hidden = !strength;
+  const library = $('#exercise-library');
+  library.replaceChildren();
+  if (!exercisesLoaded) return;
+  const { strength: groups, cardio } = exerciseGroups();
+  if (!groups.size && !cardio.length) {
+    const empty = element('div', 'empty-state small-empty');
+    empty.innerHTML = icon('strength');
+    empty.append(element('h3', '', t('noExercises')));
+    library.append(empty);
+    return;
+  }
+  const section = (title, items) => {
+    const group = element('section', 'exercise-group');
+    group.append(element('h3', '', title));
+    const list = element('ul', 'exercise-chips');
+    for (const item of items) {
+      const chip = element('li', 'exercise-chip');
+      chip.append(element('span', '', item.name), actionButton('delete', `${t('deleteExercise')} · ${item.bodyPart ? item.bodyPart + '：' : ''}${item.name}`, () => removeExercise(item)));
+      list.append(chip);
+    }
+    group.append(list);
+    library.append(group);
+  };
+  for (const [part, items] of groups) section(part, items);
+  if (cardio.length) section(t('cardio'), cardio);
+}
+async function removeExercise(item) {
+  if (exerciseBusy || !confirm(t('deleteExerciseConfirm', { name: (item.bodyPart ? item.bodyPart + '：' : '') + item.name }))) return;
+  exerciseBusy = true;
+  try {
+    await authRequest(`/api/exercises/${item.id}`, { method: 'DELETE', body: '{}' });
+    showToast(t('exerciseDeleted'));
+  } catch (error) {
+    if (handleAuthError(error)) return;
+    if (error.status !== 404) showToast(errorMessage(error), true);
+  } finally { exerciseBusy = false; }
+  await loadExercises();
+}
+$('#exercise-type').addEventListener('change', () => { $('#exercise-error').hidden = true; renderExercises(); });
+$('#exercise-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (exerciseBusy) return;
+  const type = $('#exercise-type').value;
+  const body = { type, bodyPart: type === 'strength' ? $('#exercise-body').value.trim() : '', name: $('#exercise-name').value.trim() };
+  const problem = type === 'strength' && !body.bodyPart ? 'exerciseBodyRequired' : !body.name ? 'exerciseNameRequired' : '';
+  $('#exercise-error').hidden = !problem;
+  if (problem) { $('#exercise-error').textContent = t(problem); return; }
+  exerciseBusy = true;
+  $('#add-exercise').disabled = true;
+  try {
+    await authRequest('/api/exercises', { method: 'POST', body: JSON.stringify(body) });
+    $('#exercise-name').value = '';
+    $('#exercise-name').focus();
+    showToast(t('exerciseAdded'));
+  } catch (error) {
+    if (handleAuthError(error)) return;
+    $('#exercise-error').textContent = error.status === 409 ? t('exerciseExists') : errorMessage(error);
+    $('#exercise-error').hidden = false;
+  } finally {
+    exerciseBusy = false;
+    $('#add-exercise').disabled = false;
+  }
+  await loadExercises();
+});
 function selectDay(day, targetView = view) {
   if (!validDay(day)) return;
   selectionVersion++;
@@ -340,10 +479,10 @@ function renderMonthly() {
   }
 }
 function render() {
-  $('#page-title').textContent = t(view === 'records' ? 'records' : view === 'monthly' ? 'monthly' : 'calendar');
+  $('#page-title').textContent = t(['records', 'monthly', 'exercises'].includes(view) ? view : 'calendar');
   $('#page-subtitle').textContent = t(view + 'Subtitle');
   $('#loading-state').hidden = !loading;
-  for (const name of ['calendar', 'records', 'monthly']) {
+  for (const name of ['calendar', 'records', 'exercises', 'monthly']) {
     $('#' + name + '-view').hidden = name !== view || !authenticated;
     $('#' + name + '-view').setAttribute('aria-busy', String(loading));
     document.querySelector(`[data-view="${name}"]`).classList.toggle('active', name === view);
@@ -354,10 +493,11 @@ function render() {
   if (view === 'calendar') renderCalendar();
   if (view === 'records') renderRecords();
   if (view === 'monthly') renderMonthly();
+  if (view === 'exercises') renderExercises();
 }
 function route() {
   const name = location.hash.slice(1);
-  view = ['records', 'calendar', 'monthly'].includes(name) ? name : 'calendar';
+  view = ['records', 'calendar', 'exercises', 'monthly'].includes(name) ? name : 'calendar';
   render();
 }
 function entryValues() {
@@ -384,6 +524,7 @@ function syncTypeFields() {
   $('#cardio-fields').hidden = strength;
   for (const input of $('#strength-fields').querySelectorAll('input')) { input.disabled = !strength; input.required = strength && input.id !== 'entry-weight'; }
   for (const input of $('#cardio-fields').querySelectorAll('input')) { input.disabled = strength; input.required = !strength && input.id !== 'entry-distance'; }
+  renderPresetOptions();
 }
 function openRecord(record = null, type = 'strength') {
   if (!authenticated) return;
@@ -423,6 +564,7 @@ async function restoreRecordDraft() {
     $('#' + id).value = values[key] ?? '';
   }
   $(values.type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value = values.exercise ?? '';
+  matchPreset();
   draftBaseline = '';
   showToast(t('draftRestored'));
   if (loadedMonth !== month) await loadMonth();
@@ -433,6 +575,7 @@ function setEntryBusy(value) {
   entryBusy = value;
   for (const input of recordForm.querySelectorAll('input, textarea')) input.readOnly = value;
   $('#entry-type').disabled = value;
+  $('#entry-preset').disabled = value || $('#entry-preset').options.length < 2;
   for (const button of recordForm.querySelectorAll('button')) button.disabled = value;
   $('#save-record').textContent = t(value ? 'saving' : 'saveRecord');
 }
@@ -468,6 +611,8 @@ recordForm.addEventListener('submit', async (event) => {
   } finally { setEntryBusy(false); }
 });
 $('#entry-type').addEventListener('change', syncTypeFields);
+$('#entry-preset').addEventListener('change', applyPreset);
+for (const id of ['#entry-body', '#entry-exercise', '#entry-cardio-exercise']) $(id).addEventListener('input', matchPreset);
 $('#close-record').addEventListener('click', closeRecord);
 $('#cancel-record').addEventListener('click', closeRecord);
 recordDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeRecord(); });
@@ -572,6 +717,7 @@ try {
     selectedDay = today;
     month = today.slice(0, 7);
     initSettings(status.user);
+    void loadExercises();
     if (!await restoreRecordDraft()) await loadMonth();
   }
 } catch (error) {

@@ -89,6 +89,18 @@
 .strength-fields .field input, .cardio-fields .field input { margin-top: auto; }
 .record-dialog .field input, .record-dialog .field select { min-width: 0; max-width: 100%; }
 .record-dialog .field-hint { margin-top: -5px; margin-bottom: 22px; }
+.exercise-form { display: grid; grid-template-columns: .9fr 1fr 1.6fr auto; gap: 12px; align-items: end; padding: 24px 26px 4px; }
+.exercise-form .field { min-width: 0; margin-bottom: 20px; }
+.exercise-form .field input, .exercise-form .field select { min-width: 0; max-width: 100%; height: 51px; padding-top: 0; padding-bottom: 0; }
+.exercise-form > .button { margin-bottom: 20px; min-height: 51px; white-space: nowrap; }
+.exercise-error { margin: 0 26px 16px; }
+.exercise-group { border-top: 1px solid var(--line); padding: 18px 26px; }
+.exercise-group h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; color: var(--muted); }
+.exercise-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.exercise-chip { display: inline-flex; align-items: center; gap: 2px; padding: 3px 3px 3px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-soft); font-size: 15px; line-height: 1.6; max-width: 100%; overflow-wrap: anywhere; }
+.exercise-chip .record-action { width: 27px; min-width: 27px; height: 27px; border-radius: 999px; }
+.exercise-chip .record-action:hover { color: var(--danger-text); }
+.preset-field select:disabled { color: var(--subtle); }
 @media (max-width: 1130px) {
   .record-table th, .record-table td { padding-left: 12px; padding-right: 12px; }
   .summary-stat { padding: 20px 17px; }
@@ -96,8 +108,8 @@
 @media (max-width: 700px) {
   .loading-state { top: 83px; right: 16px; }
   .navigation { background: var(--surface); }
-  .nav-item { width: 33.333%; min-width: 0; white-space: normal; font-size: 14px; gap: 7px; padding: 10px 5px; }
-  .nav-item > span:last-child { min-width: 0; text-align: center; }
+  .nav-item { width: 25%; min-width: 0; white-space: normal; flex-direction: column; font-size: 13px; line-height: 1.3; gap: 4px; padding: 8px 3px; }
+  .nav-item > span:last-child { min-width: 0; max-width: 100%; text-align: center; overflow-wrap: anywhere; }
   .calendar-day { min-height: 73px; }
   .calendar-workout { font-size: 9px; min-height: 14px; }
   .day-title-row h2 { font-size: 20px; }
@@ -126,6 +138,11 @@
   .monthly-record + .monthly-record { margin-top: 13px; }
   .month-empty { font-size: 12px; }
   .record-form-top { gap: 12px; }
+  .exercise-form { grid-template-columns: 1fr 1fr; padding: 18px 20px 4px; gap: 0 10px; }
+  .exercise-form > .field:nth-child(3), .exercise-form > .button { grid-column: 1 / -1; }
+  .exercise-form > .button { min-height: 44px; }
+  .exercise-group { padding: 16px 20px; }
+  .exercise-error { margin: 0 20px 14px; }
   .strength-fields { grid-template-columns: 1fr 1.2fr .9fr .6fr .6fr; gap: 8px; }
   .cardio-fields { grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; }
   .record-dialog .field { font-size: 13px; margin-bottom: 17px; }
@@ -149,7 +166,7 @@
   .brand img { width: 110px; }
   .topbar > .button { font-size: 13px; padding: 9px 10px; }
   .settings-trigger { width: 34px; min-width: 34px; }
-  .nav-item { font-size: 13px; gap: 4px; padding-inline: 4px; }
+  .nav-item { font-size: 12px; gap: 3px; padding-inline: 2px; }
   .nav-item svg { width: 15px; height: 15px; }
   .record-dialog { padding: 20px 16px; }
   .month-toolbar { gap: 5px; }
