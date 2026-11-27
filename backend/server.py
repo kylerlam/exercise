@@ -5,6 +5,7 @@ from contextlib import closing
 from datetime import date, datetime
 import hashlib
 import hmac
+import ipaddress
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -23,11 +24,14 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.1.8"
+APP_VERSION = "0.1.9"
 COOKIE = "exercise_session"
 SESSION_SECONDS = 30 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 600_000
 MAX_BODY = 32_768
+MAX_IMPORT_BYTES = 5 * 1024 * 1024
+MIN_PASSWORD_LENGTH = 12
+RECORD_CONTENT = ("day", "type", "bodyPart", "exercise", "sets", "reps", "unit", "weight", "duration", "distance", "notes")
 RECORD_FIELDS = {"day", "type", "bodyPart", "exercise", "sets", "reps", "unit", "weight", "duration", "distance", "notes"}
 EXERCISE_FIELDS = {"type", "bodyPart", "name", "unit"}
 UNITS = ("reps", "seconds")
@@ -166,6 +170,60 @@ def versioned_assets(content, suffix):
         text = ASSET_REFERENCE.sub(rf"\g<1>\g<2>?v={APP_VERSION}\g<3>", text)
     text = MODULE_IMPORT.sub(rf"\g<1>?v={APP_VERSION}\g<2>", text)
     return text.encode("utf-8")
+
+
+def trusted_proxies(value=None):
+    """Parse TRUSTED_PROXY_IPS: peers allowed to report the visitor address in CF-Connecting-IP."""
+    value = os.environ.get("TRUSTED_PROXY_IPS", "") if value is None else value
+    return frozenset(str(ipaddress.ip_address(item.strip())) for item in value.split(",") if item.strip())
+
+
+# Cloudflare edge networks, from https://www.cloudflare.com/ips-v4 and /ips-v6 (checked 2026-11-27).
+CLOUDFLARE_NETWORKS = tuple(ipaddress.ip_network(network) for network in (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18",
+    "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17",
+    "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32",
+    "2a06:98c0::/29", "2c0f:f248::/32",
+))
+
+
+def header_ip(headers, name):
+    try:
+        return ipaddress.ip_address(headers.get(name, "").strip())
+    except ValueError:
+        return None
+
+
+def client_ip(peer, headers, proxies):
+    """Return the address to rate-limit.
+
+    Behind a trusted reverse proxy every request comes from the proxy, which puts the real TCP
+    peer in X-Real-IP. When that peer is a Cloudflare edge, CF-Connecting-IP holds the visitor.
+    A client that reaches the proxy without Cloudflare is counted by its own address, so it cannot
+    pick a new identity by sending its own CF-Connecting-IP header.
+    """
+    if peer not in proxies:
+        return peer
+    edge = header_ip(headers, "X-Real-IP")
+    if edge is None:
+        return peer
+    if any(edge in network for network in CLOUDFLARE_NETWORKS):
+        visitor = header_ip(headers, "CF-Connecting-IP")
+        return str(visitor or edge)
+    return str(edge)
+
+
+def timestamp(value, fallback):
+    if value is None:
+        return fallback
+    if type(value) is not str or len(value) > 40:
+        raise RequestError("A timestamp in the file is invalid.", code="INVALID_IMPORT")
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        raise RequestError("A timestamp in the file is invalid.", code="INVALID_IMPORT") from None
+    return value
 
 
 def password_hash(password, salt):
@@ -325,8 +383,8 @@ class Store:
             raise RequestError("Use a username without control characters or outer spaces.", code="INVALID_USERNAME")
         current = text(data.get("current_password"), "CURRENT_PASSWORD", maximum=256)
         new_password = data.get("new_password", "")
-        if new_password != "":
-            text(new_password, "PASSWORD", 8, 256)
+        if new_password not in ("", current):
+            text(new_password, "PASSWORD", MIN_PASSWORD_LENGTH, 256)
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             self.require_session(db, token)
@@ -431,12 +489,64 @@ class Store:
 
     def export(self):
         with closing(self.connect()) as db:
-            return {"format": "exercise", "version": 1, "exported_at": self.now(),
-                    "records": [dict(row) for row in db.execute("SELECT * FROM records ORDER BY day,id")]}
+            db.execute("BEGIN")
+            return {"format": "exercise", "version": 2, "exported_at": self.now(),
+                    "records": [dict(row) for row in db.execute("SELECT * FROM records ORDER BY day,id")],
+                    "exercises": [dict(row) for row in db.execute("SELECT * FROM exercises ORDER BY type DESC, id")]}
+
+    def import_data(self, data, token=None):
+        """Merge an Exercise export: add records and saved exercises that are not already present."""
+        if not isinstance(data, dict) or data.get("format") != "exercise" or data.get("version") not in (1, 2):
+            raise RequestError("Choose a file exported from Exercise.", code="INVALID_IMPORT")
+        records, exercises = data.get("records"), data.get("exercises", [])
+        if not isinstance(records, list) or not isinstance(exercises, list):
+            raise RequestError("Choose a file exported from Exercise.", code="INVALID_IMPORT")
+        now = self.now()
+        prepared = []
+        for item in records:
+            if not isinstance(item, dict):
+                raise RequestError("A training record in the file is invalid.", code="INVALID_IMPORT")
+            try:
+                record = validate_record({key: item[key] for key in RECORD_CONTENT if key in item})
+            except RequestError as error:
+                raise RequestError(f"A training record in the file is invalid: {error}", code="INVALID_IMPORT") from None
+            created = timestamp(item.get("created_at"), now)
+            prepared.append({**record, "created_at": created, "updated_at": timestamp(item.get("updated_at"), created)})
+        saved = []
+        for item in exercises:
+            if not isinstance(item, dict):
+                raise RequestError("A saved exercise in the file is invalid.", code="INVALID_IMPORT")
+            try:
+                exercise = validate_exercise({key: item[key] for key in EXERCISE_FIELDS if key in item})
+            except RequestError as error:
+                raise RequestError(f"A saved exercise in the file is invalid: {error}", code="INVALID_IMPORT") from None
+            saved.append({**exercise, "created_at": timestamp(item.get("created_at"), now)})
+        added = skipped = new_exercises = 0
+        with closing(self.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
+            existing = {tuple(row) for row in db.execute(
+                "SELECT " + ",".join(RECORD_CONTENT) + ",created_at FROM records")}
+            for record in prepared:
+                key = tuple(record[name] for name in RECORD_CONTENT) + (record["created_at"],)
+                if key in existing:
+                    skipped += 1
+                    continue
+                existing.add(key)
+                db.execute("""INSERT INTO records
+                    (day,type,bodyPart,exercise,sets,reps,unit,weight,duration,distance,notes,created_at,updated_at)
+                    VALUES(:day,:type,:bodyPart,:exercise,:sets,:reps,:unit,:weight,:duration,:distance,:notes,:created_at,:updated_at)""",
+                           record)
+                added += 1
+            for exercise in saved:
+                new_exercises += db.execute("""INSERT OR IGNORE INTO exercises(type,bodyPart,name,unit,created_at)
+                    VALUES(:type,:bodyPart,:name,:unit,:created_at)""", exercise).rowcount
+        return {"imported_records": added, "skipped_records": skipped, "imported_exercises": new_exercises}
 
 
-def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, secure_cookie=False, store=None):
+def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, secure_cookie=False, store=None, proxies=None):
     store = store or Store(data_dir or ROOT / "data", timezone=os.environ.get("TZ", "Asia/Hong_Kong"))
+    proxies = trusted_proxies() if proxies is None else frozenset(proxies)
     dist = Path(dist_dir or ROOT / "dist").resolve()
     attempts = defaultdict(deque)
     attempts_lock = threading.Lock()
@@ -452,6 +562,8 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "same-origin")
+            if secure_cookie:
+                self.send_header("Strict-Transport-Security", "max-age=31536000")
             self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
             if self.pending_cookie is not None:
                 self.send_header("Set-Cookie", self.pending_cookie)
@@ -498,6 +610,9 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
             if self.headers.get_content_type() != "application/json":
                 raise RequestError("Use application/json.", 415, "UNSUPPORTED_CONTENT_TYPE")
 
+        def client_ip(self):
+            return client_ip(self.client_address[0], self.headers, proxies)
+
         def login_limit(self):
             now = time.monotonic()
             with attempts_lock:
@@ -506,19 +621,19 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                         attempts[ip].popleft()
                     if not attempts[ip]:
                         del attempts[ip]
-                history = attempts[self.client_address[0]]
+                history = attempts[self.client_ip()]
                 if len(history) >= 10:
                     raise RequestError("Too many login attempts. Try again in five minutes.", 429, "RATE_LIMITED")
                 history.append(now)
 
-        def body(self):
+        def body(self, limit=MAX_BODY):
             if self.headers.get("Transfer-Encoding"):
                 raise RequestError("Chunked requests are not supported.", code="INVALID_CONTENT_LENGTH")
             try:
                 length = int(self.headers.get("Content-Length", ""))
             except ValueError:
                 raise RequestError("The request length is invalid.", code="INVALID_CONTENT_LENGTH") from None
-            if not 0 < length <= MAX_BODY:
+            if not 0 < length <= limit:
                 raise RequestError("The request body is too large or empty.", 413, "BODY_TOO_LARGE")
             try:
                 def reject_constant(value):
@@ -577,7 +692,7 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                     token, user = store.login(self.body())
                     self.set_cookie(token)
                     with attempts_lock:
-                        attempts.pop(self.client_address[0], None)
+                        attempts.pop(self.client_ip(), None)
                     return self.send_json({"user": user})
                 if path == "/api/auth/logout" and self.command == "POST":
                     fields(self.body(), set())
@@ -598,6 +713,8 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                     if query:
                         raise RequestError("This endpoint does not take parameters.", code="INVALID_QUERY")
                     return self.send_json(store.export())
+                if path == "/api/import" and self.command == "POST":
+                    return self.send_json(store.import_data(self.body(MAX_IMPORT_BYTES), token=token))
                 if path == "/api/records" and self.command == "POST":
                     return self.send_json({"record": store.create(self.body(), token=token)}, 201)
                 if path == "/api/exercises" and self.command in ("GET", "HEAD"):

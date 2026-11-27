@@ -183,7 +183,7 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
       const state = read(now);
       if (isRead && url.pathname === '/api/export') {
         if ([...url.searchParams].length) fail('INVALID_QUERY');
-        return copy({ format: 'exercise', version: 1, exported_at: now.toISOString(), records: [...state.records].sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id) });
+        return copy({ format: 'exercise', version: 2, exported_at: now.toISOString(), records: [...state.records].sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id), exercises: [...state.exercises].sort((a, b) => b.type.localeCompare(a.type) || a.id - b.id) });
       }
       if (isRead && url.pathname === '/api/exercises') {
         if ([...url.searchParams].length) fail('INVALID_QUERY');

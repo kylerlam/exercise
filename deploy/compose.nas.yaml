@@ -1,7 +1,7 @@
 name: exercise
 services:
   app:
-    image: exercise:v0.1.8
+    image: exercise:v0.1.9
     platform: linux/amd64
     container_name: exercise-app
     ports:
@@ -9,6 +9,7 @@ services:
     environment:
       TZ: Asia/Hong_Kong
       SESSION_COOKIE_SECURE: "true"
+      TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-}"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
