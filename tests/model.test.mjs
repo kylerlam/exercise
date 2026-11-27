@@ -41,8 +41,8 @@ test('monthly totals count distinct days and all performed repetitions', () => {
     { day: '2026-11-16', type: 'cardio', duration: 30.5, distance: 5 },
     { day: '2026-11-17', type: 'cardio', duration: 20, distance: null },
   ];
-  assert.deepEqual(summarize(rows), { days: 2, sets: 7, reps: 96, duration: 50.5, distance: 5 });
-  assert.deepEqual(summarize([]), { days: 0, sets: 0, reps: 0, duration: 0, distance: 0 });
+  assert.deepEqual(summarize(rows), { days: 2, sets: 7, reps: 96, seconds: 0, duration: 50.5, distance: 5 });
+  assert.deepEqual(summarize([]), { days: 0, sets: 0, reps: 0, seconds: 0, duration: 0, distance: 0 });
 });
 
 test('sets and reps accept only positive whole-number input within the limit', () => {
@@ -54,7 +54,18 @@ test('sets and reps accept only positive whole-number input within the limit', (
 
 test('payloads preserve numeric JSON types and clear fields from the other training type', () => {
   const values = { day: '2026-11-16', type: 'strength', bodyPart: ' 腿 ', exercise: ' 深蹲 ', sets: '4', reps: '15', weight: '60', duration: '30.5', distance: '', notes: ' 今天 ' };
-  assert.deepEqual(recordPayload(values), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, weight: 60, duration: null, distance: null, notes: '今天' });
-  assert.deepEqual(recordPayload({ ...values, weight: '' }), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, weight: null, duration: null, distance: null, notes: '今天' });
-  assert.deepEqual(recordPayload({ ...values, type: 'cardio' }), { day: '2026-11-16', type: 'cardio', bodyPart: '', exercise: '深蹲', sets: null, reps: null, weight: null, duration: 30.5, distance: null, notes: '今天' });
+  assert.deepEqual(recordPayload(values), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, unit: 'reps', weight: 60, duration: null, distance: null, notes: '今天' });
+  assert.deepEqual(recordPayload({ ...values, weight: '' }), { day: '2026-11-16', type: 'strength', bodyPart: '腿', exercise: '深蹲', sets: 4, reps: 15, unit: 'reps', weight: null, duration: null, distance: null, notes: '今天' });
+  assert.deepEqual(recordPayload({ ...values, type: 'cardio' }), { day: '2026-11-16', type: 'cardio', bodyPart: '', exercise: '深蹲', sets: null, reps: null, unit: 'reps', weight: null, duration: 30.5, distance: null, notes: '今天' });
+});
+
+test('timed holds count as seconds, not reps', () => {
+  const rows = [
+    { day: '2026-11-16', type: 'strength', sets: 4, reps: 60, unit: 'seconds' },
+    { day: '2026-11-16', type: 'strength', sets: 3, reps: 10, unit: 'reps' },
+  ];
+  assert.deepEqual(summarize(rows), { days: 1, sets: 7, reps: 30, seconds: 240, duration: 0, distance: 0 });
+  const values = { day: '2026-11-16', type: 'strength', bodyPart: '核心', exercise: '平板支撐', sets: '4', reps: '60', unit: 'seconds', weight: '', duration: '', distance: '', notes: '' };
+  assert.equal(recordPayload(values).unit, 'seconds');
+  assert.equal(recordPayload({ ...values, type: 'cardio', duration: '10' }).unit, 'reps');
 });

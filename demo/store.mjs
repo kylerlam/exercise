@@ -1,4 +1,4 @@
-export const DEMO_STORAGE_KEY = 'exercise-demo-v3';
+export const DEMO_STORAGE_KEY = 'exercise-demo-v4';
 export const DEMO_LOCK = 'exercise-demo-write';
 
 function fail(code, status = 400) {
@@ -37,14 +37,18 @@ function validDate(value) {
   return value;
 }
 
-const RECORD_FIELDS = ['day', 'type', 'bodyPart', 'exercise', 'sets', 'reps', 'weight', 'duration', 'distance', 'notes'];
+const RECORD_FIELDS = ['day', 'type', 'bodyPart', 'exercise', 'sets', 'reps', 'unit', 'weight', 'duration', 'distance', 'notes'];
+function validUnit(value, type) {
+  if (!['reps', 'seconds'].includes(value) || (type === 'cardio' && value !== 'reps')) fail('INVALID_UNIT');
+  return value;
+}
 function validateRecord(data, editing = false) {
   fields(data, [...RECORD_FIELDS, ...(editing ? ['version'] : [])]);
   const record = {
     day: validDate(data.day), type: data.type,
     bodyPart: text(data.bodyPart === undefined ? '' : data.bodyPart, 'BODY_PART', 0, 60).trim(),
     exercise: text(data.exercise, 'EXERCISE', 1, 100).trim(),
-    sets: data.sets ?? null, reps: data.reps ?? null, weight: data.weight ?? null,
+    sets: data.sets ?? null, reps: data.reps ?? null, unit: data.unit ?? 'reps', weight: data.weight ?? null,
     duration: data.duration ?? null, distance: data.distance ?? null,
     notes: text(data.notes === undefined ? '' : data.notes, 'NOTES', 0, 2000),
   };
@@ -60,23 +64,25 @@ function validateRecord(data, editing = false) {
     positive(record.duration, 'DURATION', 10080);
     if (record.distance !== null) positive(record.distance, 'DISTANCE', 100000);
   } else fail('INVALID_TYPE');
+  validUnit(record.unit, record.type);
   if (editing) integer(data.version, 'VERSION', 2 ** 31 - 1);
   return record;
 }
 
 function validateExercise(data) {
-  fields(data, ['type', 'bodyPart', 'name']);
-  const item = { type: data.type, bodyPart: text(data.bodyPart === undefined ? '' : data.bodyPart, 'BODY_PART', 0, 60).trim(), name: text(data.name, 'EXERCISE', 1, 100).trim() };
+  fields(data, ['type', 'bodyPart', 'name', 'unit']);
+  const item = { type: data.type, bodyPart: text(data.bodyPart === undefined ? '' : data.bodyPart, 'BODY_PART', 0, 60).trim(), name: text(data.name, 'EXERCISE', 1, 100).trim(), unit: data.unit ?? 'reps' };
   if (!item.name) fail('INVALID_EXERCISE');
   if (item.type === 'strength') { if (!item.bodyPart) fail('INVALID_BODY_PART'); }
   else if (item.type === 'cardio') { if (item.bodyPart) fail('INVALID_CARDIO'); }
   else fail('INVALID_TYPE');
+  validUnit(item.unit, item.type);
   return item;
 }
 
 function validStored(value) {
   fields(value, ['format', 'version', 'day', 'updatedAt', 'nextId', 'records', 'exercises']);
-  if (value.format !== 'exercise-demo' || value.version !== 2 || !Array.isArray(value.records) || !Array.isArray(value.exercises)) fail('DEMO_STORAGE_INVALID');
+  if (value.format !== 'exercise-demo' || value.version !== 3 || !Array.isArray(value.records) || !Array.isArray(value.exercises)) fail('DEMO_STORAGE_INVALID');
   validDate(value.day);
   if (typeof value.updatedAt !== 'string' || new Date(value.updatedAt).toISOString() !== value.updatedAt) fail('DEMO_STORAGE_INVALID');
   integer(value.nextId, 'ID', Number.MAX_SAFE_INTEGER);
@@ -97,8 +103,8 @@ function validStored(value) {
   }
   const keys = new Set();
   for (const item of value.exercises) {
-    fields(item, ['id', 'type', 'bodyPart', 'name', 'created_at']);
-    const valid = validateExercise({ type: item.type, bodyPart: item.bodyPart, name: item.name });
+    fields(item, ['id', 'type', 'bodyPart', 'name', 'unit', 'created_at']);
+    const valid = validateExercise({ type: item.type, bodyPart: item.bodyPart, name: item.name, unit: item.unit });
     integer(item.id, 'ID', Number.MAX_SAFE_INTEGER);
     const key = JSON.stringify([valid.type, valid.bodyPart, valid.name]);
     if (ids.has(item.id) || item.id >= value.nextId || keys.has(key) || typeof item.created_at !== 'string') fail('DEMO_STORAGE_INVALID');
@@ -111,15 +117,15 @@ function validStored(value) {
 function examples(now, nextId) {
   const day = hongKongDay(now), at = now.toISOString();
   const offset = (days) => new Date(new Date(day + 'T12:00:00Z').valueOf() + days * 86400000).toISOString().slice(0, 10);
-  const state = { format: 'exercise-demo', version: 2, day, updatedAt: at, nextId, records: [], exercises: [] };
+  const state = { format: 'exercise-demo', version: 3, day, updatedAt: at, nextId, records: [], exercises: [] };
   for (const input of [
     { day: offset(-3), type: 'strength', bodyPart: 'Back', exercise: 'Demo row', sets: 3, reps: 12 },
     { day: offset(-1), type: 'cardio', exercise: 'Demo cycling', duration: 25, distance: 7.5 },
     { day, type: 'strength', bodyPart: 'Legs', exercise: 'Demo squat', sets: 4, reps: 15, weight: 60 },
     { day, type: 'cardio', exercise: 'Demo walk', duration: 30, distance: 2.5 },
   ]) state.records.push({ ...validateRecord({ ...input, notes: 'Fictional sample. Edit freely or reset this demo.' }), id: state.nextId++, version: 1, created_at: at, updated_at: at });
-  for (const [type, bodyPart, name] of [['strength', 'Back', 'Demo row'], ['strength', 'Legs', 'Demo squat'], ['strength', 'Chest', 'Demo push-up'], ['cardio', '', 'Demo cycling'], ['cardio', '', 'Demo walk']]) {
-    state.exercises.push({ id: state.nextId++, type, bodyPart, name, created_at: at });
+  for (const [type, bodyPart, name, unit = 'reps'] of [['strength', 'Back', 'Demo row'], ['strength', 'Legs', 'Demo squat'], ['strength', 'Chest', 'Demo push-up'], ['strength', 'Core', 'Demo plank', 'seconds'], ['cardio', '', 'Demo cycling'], ['cardio', '', 'Demo walk']]) {
+    state.exercises.push({ id: state.nextId++, type, bodyPart, name, unit, created_at: at });
   }
   return state;
 }
@@ -167,7 +173,7 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
     const isRead = method === 'GET' && ['/api/records', '/api/export', '/api/exercises'].includes(url.pathname);
     const match = /^\/api\/records\/([1-9]\d*)$/.exec(url.pathname);
     const exerciseMatch = /^\/api\/exercises\/([1-9]\d*)$/.exec(url.pathname);
-    const exerciseWrite = (method === 'POST' && url.pathname === '/api/exercises') || (exerciseMatch && method === 'DELETE');
+    const exerciseWrite = (method === 'POST' && url.pathname === '/api/exercises') || (exerciseMatch && ['PATCH', 'DELETE'].includes(method));
     if (!isRead && !exerciseWrite && !(method === 'POST' && url.pathname === '/api/records') && !(match && ['PATCH', 'DELETE'].includes(method))) fail('NOT_FOUND', 404);
     let input;
     if (method !== 'GET') {
@@ -199,6 +205,12 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
           if (state.exercises.some((entry) => entry.type === item.type && entry.bodyPart === item.bodyPart && entry.name === item.name)) fail('EXERCISE_EXISTS', 409);
           result = { exercise: { id: state.nextId++, ...item, created_at: at } };
           state.exercises.push(result.exercise);
+        } else if (method === 'PATCH') {
+          fields(input, ['unit']);
+          const entry = state.exercises.find((item) => item.id === Number(exerciseMatch[1]));
+          if (!entry) fail('NOT_FOUND', 404);
+          entry.unit = validUnit(input.unit, entry.type);
+          result = { exercise: entry };
         } else {
           fields(input, []);
           const id = Number(exerciseMatch[1]);
