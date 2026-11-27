@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.6 — 2026-11-27
+
+- Add an Exercises page between Daily records and Calendar to save frequently used strength moves (by body part) and cardio activities, with duplicate protection and removal that leaves past records unchanged.
+- The record dialog offers a "pick a saved exercise" list that fills the body part and exercise name; manual entry still works.
+- On upgrade, every distinct exercise already present in training records is imported once into the library.
+- Mirror the library in the Cloudflare Pages demo; phone navigation now stacks icons above labels to fit four tabs.
+
+## 0.1.5 — 2026-11-23
+
+- Calendar day cells now show the trained body parts, de-duplicated in entry order (e.g. 胸·背), instead of the first exercise name plus a count; cardio-only days still show the activity name.
+
 ## 0.1.4 — 2026-11-23
 
 - Record an optional weight (kg, up to 10000) on strength entries, shown in its own column and in the calendar, day, and monthly shorthand (e.g. 腿：深蹲 60kg × 4 × 15). Cardio still rejects weight; existing databases are migrated non-destructively.

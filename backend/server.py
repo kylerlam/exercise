@@ -23,12 +23,13 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.6"
 COOKIE = "exercise_session"
 SESSION_SECONDS = 30 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 600_000
 MAX_BODY = 32_768
 RECORD_FIELDS = {"day", "type", "bodyPart", "exercise", "sets", "reps", "weight", "duration", "distance", "notes"}
+EXERCISE_FIELDS = {"type", "bodyPart", "name"}
 
 
 class RequestError(Exception):
@@ -121,6 +122,24 @@ def validate_record(data, editing=False):
     return record
 
 
+def validate_exercise(data):
+    fields(data, EXERCISE_FIELDS)
+    item = {"type": data.get("type"),
+            "bodyPart": text(data.get("bodyPart", ""), "BODY_PART", maximum=60).strip(),
+            "name": text(data.get("name"), "EXERCISE", 1, 100).strip()}
+    if not item["name"]:
+        raise RequestError("Enter an exercise.", code="INVALID_EXERCISE")
+    if item["type"] == "strength":
+        if not item["bodyPart"]:
+            raise RequestError("Enter a body part.", code="INVALID_BODY_PART")
+    elif item["type"] == "cardio":
+        if item["bodyPart"]:
+            raise RequestError("Cardio exercises have no body part.", code="INVALID_CARDIO")
+    else:
+        raise RequestError("Choose strength or cardio.", code="INVALID_TYPE")
+    return item
+
+
 def password_hash(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), PASSWORD_ITERATIONS).hex()
 
@@ -143,6 +162,8 @@ class Store:
         else:
             os.close(descriptor)
         with closing(self.connect()) as db, db:
+            seed_exercises = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='exercises'").fetchone() is None
             db.executescript("""
                 PRAGMA journal_mode = WAL;
                 CREATE TABLE IF NOT EXISTS accounts (
@@ -173,10 +194,24 @@ class Store:
                         AND (distance IS NULL OR (distance > 0 AND distance <= 100000))))
                 );
                 CREATE INDEX IF NOT EXISTS records_day ON records(day, id);
+                CREATE TABLE IF NOT EXISTS exercises (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    type TEXT NOT NULL CHECK(type IN ('strength', 'cardio')),
+                    bodyPart TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL,
+                    CHECK ((type = 'strength' AND length(bodyPart) > 0) OR (type = 'cardio' AND bodyPart = '')),
+                    CHECK (length(name) > 0),
+                    UNIQUE(type, bodyPart, name)
+                );
             """)
             if not any(row[1] == "weight" for row in db.execute("PRAGMA table_info(records)")):
                 db.execute("ALTER TABLE records ADD COLUMN weight REAL")
             db.execute("BEGIN IMMEDIATE")
+            if seed_exercises:
+                # One-time import: every distinct exercise already written in records becomes a preset.
+                db.execute("""INSERT OR IGNORE INTO exercises(type,bodyPart,name,created_at)
+                    SELECT type, trim(bodyPart), trim(exercise), min(created_at) FROM records
+                    WHERE length(trim(exercise)) > 0
+                    GROUP BY type, trim(bodyPart), trim(exercise) ORDER BY min(id)""")
             if db.execute("SELECT 1 FROM accounts WHERE id=1").fetchone() is None:
                 salt = secrets.token_hex(16)
                 db.execute("INSERT INTO accounts(id,username,salt,password_hash) VALUES(1,?,?,?)",
@@ -315,6 +350,30 @@ class Store:
             if current["version"] != version:
                 raise RequestError("This record changed on another screen. Refresh and try again.", 409, "RECORD_CHANGED")
             db.execute("DELETE FROM records WHERE id=?", (record_id,))
+
+    def exercises(self):
+        with closing(self.connect()) as db:
+            rows = db.execute("SELECT * FROM exercises ORDER BY type DESC, id").fetchall()
+            return {"exercises": [dict(row) for row in rows]}
+
+    def create_exercise(self, data, token=None):
+        item = validate_exercise(data)
+        with closing(self.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
+            if db.execute("SELECT 1 FROM exercises WHERE type=:type AND bodyPart=:bodyPart AND name=:name", item).fetchone():
+                raise RequestError("This exercise is already saved.", 409, "EXERCISE_EXISTS")
+            exercise_id = db.execute("INSERT INTO exercises(type,bodyPart,name,created_at) VALUES(:type,:bodyPart,:name,:created_at)",
+                                     {**item, "created_at": self.now()}).lastrowid
+            return dict(db.execute("SELECT * FROM exercises WHERE id=?", (exercise_id,)).fetchone())
+
+    def delete_exercise(self, exercise_id, data, token=None):
+        fields(data, set())
+        with closing(self.connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            self.require_session(db, token)
+            if db.execute("DELETE FROM exercises WHERE id=?", (exercise_id,)).rowcount == 0:
+                raise RequestError("The exercise was not found.", 404, "NOT_FOUND")
 
     def export(self):
         with closing(self.connect()) as db:
@@ -487,6 +546,16 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
                     return self.send_json(store.export())
                 if path == "/api/records" and self.command == "POST":
                     return self.send_json({"record": store.create(self.body(), token=token)}, 201)
+                if path == "/api/exercises" and self.command in ("GET", "HEAD"):
+                    if query:
+                        raise RequestError("This endpoint does not take parameters.", code="INVALID_QUERY")
+                    return self.send_json(store.exercises())
+                if path == "/api/exercises" and self.command == "POST":
+                    return self.send_json({"exercise": store.create_exercise(self.body(), token=token)}, 201)
+                match = re.fullmatch(r"/api/exercises/([1-9]\d{0,18})", path)
+                if match and int(match[1]) < 2 ** 63 and self.command == "DELETE":
+                    store.delete_exercise(int(match[1]), self.body(), token=token)
+                    return self.send_json({"ok": True})
                 match = re.fullmatch(r"/api/records/([1-9]\d{0,18})", path)
                 if match and int(match[1]) < 2 ** 63:
                     if self.command == "PATCH":

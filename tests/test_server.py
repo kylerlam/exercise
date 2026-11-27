@@ -173,6 +173,44 @@ class StoreTests(unittest.TestCase):
         self.assertIsNone(store.month("2026-11")["records"][0]["weight"])
         self.assertEqual(store.create(strength(weight=72.5))["weight"], 72.5)
 
+    def test_existing_records_seed_exercise_library_once(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "exercise.sqlite3"
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("""CREATE TABLE records (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL, type TEXT NOT NULL, bodyPart TEXT NOT NULL, exercise TEXT NOT NULL,
+                sets INTEGER, reps INTEGER, weight REAL, duration REAL, distance REAL, notes TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+            for body, name, kind, sets, duration in (("腿", "深蹲", "strength", 4, None), ("腿", "深蹲 ", "strength", 3, None),
+                                                      ("胸", "卧推", "strength", 4, None), ("", "跑步", "cardio", None, 30)):
+                db.execute("""INSERT INTO records (day,type,bodyPart,exercise,sets,reps,duration,notes,created_at,updated_at)
+                    VALUES('2026-11-16',?,?,?,?,?,?,'','2026-11-16T00:00:00','2026-11-16T00:00:00')""",
+                           (kind, body, name, sets, 10 if sets else None, duration))
+            db.commit()
+        store = Store(directory.name, clock=lambda: self.now)
+        items = store.exercises()["exercises"]
+        self.assertEqual([(i["type"], i["bodyPart"], i["name"]) for i in items],
+                         [("strength", "腿", "深蹲"), ("strength", "胸", "卧推"), ("cardio", "", "跑步")])
+        store.delete_exercise(items[0]["id"], {})
+        reopened = Store(directory.name, clock=lambda: self.now)
+        self.assertEqual(len(reopened.exercises()["exercises"]), 2)
+
+    def test_exercise_library_validation_and_duplicates(self):
+        item = self.store.create_exercise({"type": "strength", "bodyPart": " 背 ", "name": " 划船 "})
+        self.assertEqual((item["bodyPart"], item["name"]), ("背", "划船"))
+        for bad in ({"type": "strength", "bodyPart": "", "name": "x"}, {"type": "cardio", "bodyPart": "腿", "name": "x"},
+                    {"type": "yoga", "name": "x"}, {"type": "cardio", "name": " "}, {"type": "cardio", "name": "x", "extra": 1}):
+            with self.subTest(bad=bad), self.assertRaises(RequestError):
+                self.store.create_exercise(bad)
+        with self.assertRaises(RequestError) as error:
+            self.store.create_exercise({"type": "strength", "bodyPart": "背", "name": "划船"})
+        self.assertEqual(error.exception.status, 409)
+        self.store.delete_exercise(item["id"], {})
+        with self.assertRaises(RequestError) as error:
+            self.store.delete_exercise(item["id"], {})
+        self.assertEqual(error.exception.status, 404)
+
     def test_month_filtering_leap_day_and_boundaries(self):
         for day in ("2024-02-29", "2024-03-01", "9998-12-31"):
             self.store.create(strength(day=day))
@@ -315,6 +353,20 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("DELETE", f'/api/records/{record["id"]}', {"version": 1})[0], 409)
         self.assertEqual(self.request("DELETE", f'/api/records/{record["id"]}', {"version": 2})[0], 200)
         self.assertEqual(self.request("DELETE", "/api/records/999", {"version": 1})[0], 404)
+
+    def test_exercise_http_crud(self):
+        self.assertEqual(self.request("GET", "/api/exercises")[0], 401)
+        self.login()
+        self.assertEqual(self.request("GET", "/api/exercises")[2], {"exercises": []})
+        status, _, body = self.request("POST", "/api/exercises", {"type": "strength", "bodyPart": "腿", "name": "深蹲"})
+        self.assertEqual(status, 201)
+        self.assertEqual(self.request("POST", "/api/exercises", {"type": "strength", "bodyPart": "腿", "name": "深蹲"})[2]["code"], "EXERCISE_EXISTS")
+        self.assertEqual(self.request("POST", "/api/exercises", {"type": "cardio", "name": "跑步"})[0], 201)
+        self.assertEqual([i["name"] for i in self.request("GET", "/api/exercises")[2]["exercises"]], ["深蹲", "跑步"])
+        self.assertEqual(self.request("GET", "/api/exercises?x=1")[0], 400)
+        self.assertEqual(self.request("DELETE", f'/api/exercises/{body["exercise"]["id"]}', {})[0], 200)
+        self.assertEqual(self.request("DELETE", f'/api/exercises/{body["exercise"]["id"]}', {})[0], 404)
+        self.assertEqual(len(self.request("GET", "/api/exercises")[2]["exercises"]), 1)
 
     def test_weight_round_trips_through_http(self):
         self.login()

@@ -17,7 +17,7 @@ for (const [source, target] of [['auth.mjs', 'auth.mjs'], ['store.mjs', 'demo-st
 const htmlPath = resolve(output, 'index.html');
 writeFileSync(htmlPath, readFileSync(htmlPath, 'utf8').replace('</head>', '  <link rel="stylesheet" href="/demo.css">\n</head>'));
 const appPath = resolve(output, 'app.js');
-writeFileSync(appPath, readFileSync(appPath, 'utf8') + '\nwindow.addEventListener("exercise-demo-update", () => { if (authenticated) void loadMonth(); });\n');
+writeFileSync(appPath, readFileSync(appPath, 'utf8') + '\nwindow.addEventListener("exercise-demo-update", () => { if (authenticated) { void loadMonth(); void loadExercises(); } });\n');
 // Pages serves unknown assets as the demo entrypoint; no login page is published.
 writeFileSync(resolve(output, '_redirects'), '/login.html / 302\n/login / 302\n');
 writeFileSync(resolve(output, '_headers'), '/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: same-origin\n  Content-Security-Policy: default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data:; connect-src \'none\'; base-uri \'none\'; form-action \'none\'; frame-ancestors \'none\'\n');

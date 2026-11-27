@@ -1,4 +1,4 @@
-export const DEMO_STORAGE_KEY = 'exercise-demo-v2';
+export const DEMO_STORAGE_KEY = 'exercise-demo-v3';
 export const DEMO_LOCK = 'exercise-demo-write';
 
 function fail(code, status = 400) {
@@ -64,9 +64,19 @@ function validateRecord(data, editing = false) {
   return record;
 }
 
+function validateExercise(data) {
+  fields(data, ['type', 'bodyPart', 'name']);
+  const item = { type: data.type, bodyPart: text(data.bodyPart === undefined ? '' : data.bodyPart, 'BODY_PART', 0, 60).trim(), name: text(data.name, 'EXERCISE', 1, 100).trim() };
+  if (!item.name) fail('INVALID_EXERCISE');
+  if (item.type === 'strength') { if (!item.bodyPart) fail('INVALID_BODY_PART'); }
+  else if (item.type === 'cardio') { if (item.bodyPart) fail('INVALID_CARDIO'); }
+  else fail('INVALID_TYPE');
+  return item;
+}
+
 function validStored(value) {
-  fields(value, ['format', 'version', 'day', 'updatedAt', 'nextId', 'records']);
-  if (value.format !== 'exercise-demo' || value.version !== 1 || !Array.isArray(value.records)) fail('DEMO_STORAGE_INVALID');
+  fields(value, ['format', 'version', 'day', 'updatedAt', 'nextId', 'records', 'exercises']);
+  if (value.format !== 'exercise-demo' || value.version !== 2 || !Array.isArray(value.records) || !Array.isArray(value.exercises)) fail('DEMO_STORAGE_INVALID');
   validDate(value.day);
   if (typeof value.updatedAt !== 'string' || new Date(value.updatedAt).toISOString() !== value.updatedAt) fail('DEMO_STORAGE_INVALID');
   integer(value.nextId, 'ID', Number.MAX_SAFE_INTEGER);
@@ -85,19 +95,32 @@ function validStored(value) {
     }
     if (record.created_at > record.updated_at || record.updated_at > value.updatedAt) fail('DEMO_STORAGE_INVALID');
   }
+  const keys = new Set();
+  for (const item of value.exercises) {
+    fields(item, ['id', 'type', 'bodyPart', 'name', 'created_at']);
+    const valid = validateExercise({ type: item.type, bodyPart: item.bodyPart, name: item.name });
+    integer(item.id, 'ID', Number.MAX_SAFE_INTEGER);
+    const key = JSON.stringify([valid.type, valid.bodyPart, valid.name]);
+    if (ids.has(item.id) || item.id >= value.nextId || keys.has(key) || typeof item.created_at !== 'string') fail('DEMO_STORAGE_INVALID');
+    ids.add(item.id);
+    keys.add(key);
+  }
   return value;
 }
 
 function examples(now, nextId) {
   const day = hongKongDay(now), at = now.toISOString();
   const offset = (days) => new Date(new Date(day + 'T12:00:00Z').valueOf() + days * 86400000).toISOString().slice(0, 10);
-  const state = { format: 'exercise-demo', version: 1, day, updatedAt: at, nextId, records: [] };
+  const state = { format: 'exercise-demo', version: 2, day, updatedAt: at, nextId, records: [], exercises: [] };
   for (const input of [
     { day: offset(-3), type: 'strength', bodyPart: 'Back', exercise: 'Demo row', sets: 3, reps: 12 },
     { day: offset(-1), type: 'cardio', exercise: 'Demo cycling', duration: 25, distance: 7.5 },
     { day, type: 'strength', bodyPart: 'Legs', exercise: 'Demo squat', sets: 4, reps: 15, weight: 60 },
     { day, type: 'cardio', exercise: 'Demo walk', duration: 30, distance: 2.5 },
   ]) state.records.push({ ...validateRecord({ ...input, notes: 'Fictional sample. Edit freely or reset this demo.' }), id: state.nextId++, version: 1, created_at: at, updated_at: at });
+  for (const [type, bodyPart, name] of [['strength', 'Back', 'Demo row'], ['strength', 'Legs', 'Demo squat'], ['strength', 'Chest', 'Demo push-up'], ['cardio', '', 'Demo cycling'], ['cardio', '', 'Demo walk']]) {
+    state.exercises.push({ id: state.nextId++, type, bodyPart, name, created_at: at });
+  }
   return state;
 }
 
@@ -141,9 +164,11 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
     const url = new URL(path, 'https://exercise-demo.invalid');
     if (url.origin !== 'https://exercise-demo.invalid') fail('NOT_FOUND', 404);
     if (url.pathname === '/api/auth/status' && method === 'GET') return { authenticated: true, user: null, show_default_credentials: false, today: hongKongDay(clock()) };
-    const isRead = method === 'GET' && ['/api/records', '/api/export'].includes(url.pathname);
+    const isRead = method === 'GET' && ['/api/records', '/api/export', '/api/exercises'].includes(url.pathname);
     const match = /^\/api\/records\/([1-9]\d*)$/.exec(url.pathname);
-    if (!isRead && !(method === 'POST' && url.pathname === '/api/records') && !(match && ['PATCH', 'DELETE'].includes(method))) fail('NOT_FOUND', 404);
+    const exerciseMatch = /^\/api\/exercises\/([1-9]\d*)$/.exec(url.pathname);
+    const exerciseWrite = (method === 'POST' && url.pathname === '/api/exercises') || (exerciseMatch && method === 'DELETE');
+    if (!isRead && !exerciseWrite && !(method === 'POST' && url.pathname === '/api/records') && !(match && ['PATCH', 'DELETE'].includes(method))) fail('NOT_FOUND', 404);
     let input;
     if (method !== 'GET') {
       try { input = JSON.parse(options.body); } catch { fail('INVALID_JSON'); }
@@ -154,6 +179,10 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
         if ([...url.searchParams].length) fail('INVALID_QUERY');
         return copy({ format: 'exercise', version: 1, exported_at: now.toISOString(), records: [...state.records].sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id) });
       }
+      if (isRead && url.pathname === '/api/exercises') {
+        if ([...url.searchParams].length) fail('INVALID_QUERY');
+        return copy({ exercises: [...state.exercises].sort((a, b) => b.type.localeCompare(a.type) || a.id - b.id) });
+      }
       if (isRead) {
         const values = url.searchParams.getAll('month');
         if ([...url.searchParams].length !== 1 || values.length !== 1) fail('INVALID_QUERY');
@@ -163,6 +192,24 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
       }
       if (now.toISOString() < state.updatedAt) fail('DEMO_CLOCK_ERROR', 409);
       const at = now.toISOString();
+      if (exerciseWrite) {
+        let result;
+        if (method === 'POST') {
+          const item = validateExercise(input);
+          if (state.exercises.some((entry) => entry.type === item.type && entry.bodyPart === item.bodyPart && entry.name === item.name)) fail('EXERCISE_EXISTS', 409);
+          result = { exercise: { id: state.nextId++, ...item, created_at: at } };
+          state.exercises.push(result.exercise);
+        } else {
+          fields(input, []);
+          const id = Number(exerciseMatch[1]);
+          if (!state.exercises.some((entry) => entry.id === id)) fail('NOT_FOUND', 404);
+          state.exercises = state.exercises.filter((entry) => entry.id !== id);
+          result = { ok: true };
+        }
+        state.updatedAt = at;
+        save(state);
+        return copy(result);
+      }
       let record;
       if (method === 'POST') {
         record = { ...validateRecord(input), id: state.nextId++, version: 1, created_at: at, updated_at: at };

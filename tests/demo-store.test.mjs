@@ -221,13 +221,27 @@ test('generator publishes only the public whitelist and a network-free adapter',
     assert.match(readFileSync(resolve(output, 'auth.mjs'), 'utf8'), /export const takeRecordDraft/);
     const generatedApp = readFileSync(resolve(output, 'app.js'), 'utf8');
     const hook = generatedApp.slice(generatedApp.lastIndexOf('window.addEventListener("exercise-demo-update"'));
-    let callback, refreshes = 0;
+    let callback, refreshes = 0, exerciseRefreshes = 0;
     runInNewContext(hook, { authenticated: true, loading: true, document: { querySelector: () => ({ open: true }) },
-      window: { addEventListener: (name, action) => { callback = action; } }, loadMonth: () => { refreshes++; } });
+      window: { addEventListener: (name, action) => { callback = action; } }, loadMonth: () => { refreshes++; }, loadExercises: () => { exerciseRefreshes++; } });
     callback();
     assert.equal(refreshes, 1, 'Cross-tab updates must refresh cached records while a modal is open or a load is pending.');
+    assert.equal(exerciseRefreshes, 1, 'Cross-tab updates must refresh saved exercises.');
     writeFileSync(resolve(output, 'sentinel.txt'), 'keep');
     assert.notEqual(spawnSync(process.execPath, [resolve(root, 'scripts/build-demo.mjs'), output]).status, 0);
     assert.equal(readFileSync(resolve(output, 'sentinel.txt'), 'utf8'), 'keep');
   } finally { rmSync(output, { recursive: true, force: true }); }
+});
+
+test('saved exercises seed, add, reject duplicates and delete', async () => {
+  const { store } = fixture();
+  const seeded = (await store.request('/api/exercises')).exercises;
+  assert.ok(seeded.length >= 4);
+  assert.ok(seeded.every((item) => item.name.startsWith('Demo')));
+  const added = (await write(store, '/api/exercises', { type: 'strength', bodyPart: 'Arms', name: 'Test curl' })).exercise;
+  await assert.rejects(write(store, '/api/exercises', { type: 'strength', bodyPart: 'Arms', name: 'Test curl' }), error('EXERCISE_EXISTS', 409));
+  await assert.rejects(write(store, '/api/exercises', { type: 'cardio', bodyPart: 'Legs', name: 'x' }), error('INVALID_CARDIO'));
+  assert.deepEqual(await write(store, '/api/exercises/' + added.id, {}, 'DELETE'), { ok: true });
+  await assert.rejects(write(store, '/api/exercises/' + added.id, {}, 'DELETE'), error('NOT_FOUND', 404));
+  assert.equal((await store.request('/api/exercises')).exercises.length, seeded.length);
 });
