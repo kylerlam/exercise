@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7 — 2026-11-27
+
+- Fix: after the 0.1.6 release, Cloudflare kept serving the old `app.js` to browsers, so the Exercises tab fell back to the calendar. The server now tags every script, stylesheet and module import with the release version so cached files can never mix versions.
+- The Exercises page is now a table: an entry row (body part, exercise, Add) above one row per saved exercise, with separate strength and cardio tables.
+- In the record dialog, body part and exercise are dropdowns; picking a body part narrows the exercise list, and "Other (type manually)" keeps free typing available.
+
 ## 0.1.6 — 2026-11-27
 
 - Add an Exercises page between Daily records and Calendar to save frequently used strength moves (by body part) and cardio activities, with duplicate protection and removal that leaves past records unchanged.
