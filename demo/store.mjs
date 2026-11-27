@@ -174,7 +174,8 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
     const match = /^\/api\/records\/([1-9]\d*)$/.exec(url.pathname);
     const exerciseMatch = /^\/api\/exercises\/([1-9]\d*)$/.exec(url.pathname);
     const exerciseWrite = (method === 'POST' && url.pathname === '/api/exercises') || (exerciseMatch && ['PATCH', 'DELETE'].includes(method));
-    if (!isRead && !exerciseWrite && !(method === 'POST' && url.pathname === '/api/records') && !(match && ['PATCH', 'DELETE'].includes(method))) fail('NOT_FOUND', 404);
+    const isImport = method === 'POST' && url.pathname === '/api/import';
+    if (!isRead && !exerciseWrite && !isImport && !(method === 'POST' && url.pathname === '/api/records') && !(match && ['PATCH', 'DELETE'].includes(method))) fail('NOT_FOUND', 404);
     let input;
     if (method !== 'GET') {
       try { input = JSON.parse(options.body); } catch { fail('INVALID_JSON'); }
@@ -198,6 +199,39 @@ export function createDemoStore({ storage, locks = globalThis.navigator?.locks, 
       }
       if (now.toISOString() < state.updatedAt) fail('DEMO_CLOCK_ERROR', 409);
       const at = now.toISOString();
+      if (isImport) {
+        // Same merge as the server: add records and saved exercises that are not present yet.
+        if (!input || typeof input !== 'object' || input.format !== 'exercise' || ![1, 2].includes(input.version)
+          || !Array.isArray(input.records) || !Array.isArray(input.exercises ?? [])) fail('INVALID_IMPORT');
+        const pick = (item, names) => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) fail('INVALID_IMPORT');
+          return Object.fromEntries(names.filter((name) => Object.hasOwn(item, name)).map((name) => [name, item[name]]));
+        };
+        const stamp = (value) => {
+          const parsed = typeof value === 'string' ? new Date(value) : null;
+          const iso = parsed && Number.isFinite(parsed.valueOf()) ? parsed.toISOString() : at;
+          return iso < at ? iso : at;
+        };
+        const records = input.records.map((item) => ({ ...validateRecord(pick(item, RECORD_FIELDS)), created_at: stamp(item.created_at) }));
+        const saved = (input.exercises ?? []).map((item) => validateExercise(pick(item, ['type', 'bodyPart', 'name', 'unit'])));
+        const key = (record) => JSON.stringify([...RECORD_FIELDS.map((name) => record[name]), record.created_at]);
+        const existing = new Set(state.records.map(key));
+        const result = { imported_records: 0, skipped_records: 0, imported_exercises: 0 };
+        for (const record of records) {
+          if (existing.has(key(record))) { result.skipped_records += 1; continue; }
+          existing.add(key(record));
+          state.records.push({ ...record, id: state.nextId++, version: 1, updated_at: at });
+          result.imported_records += 1;
+        }
+        for (const item of saved) {
+          if (state.exercises.some((entry) => entry.type === item.type && entry.bodyPart === item.bodyPart && entry.name === item.name)) continue;
+          state.exercises.push({ id: state.nextId++, ...item, created_at: at });
+          result.imported_exercises += 1;
+        }
+        state.updatedAt = at;
+        save(state);
+        return copy(result);
+      }
       if (exerciseWrite) {
         let result;
         if (method === 'POST') {

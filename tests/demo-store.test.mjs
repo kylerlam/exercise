@@ -246,3 +246,20 @@ test('saved exercises seed, add, reject duplicates and delete', async () => {
   await assert.rejects(write(store, '/api/exercises/' + added.id, {}, 'DELETE'), error('NOT_FOUND', 404));
   assert.equal((await store.request('/api/exercises')).exercises.length, seeded.length);
 });
+
+test('demo import merges an export once and rejects invalid files without changes', async () => {
+  const { store } = fixture();
+  const backup = await store.request('/api/export');
+  const post = (body) => store.request('/api/import', { method: 'POST', body: JSON.stringify(body) });
+  assert.deepEqual(await post(backup), { imported_records: 0, skipped_records: backup.records.length, imported_exercises: 0 });
+  const extra = { format: 'exercise', version: 1, records: [{ day: '2026-11-20', type: 'cardio', bodyPart: '', exercise: 'Swim', sets: null, reps: null, unit: 'reps', weight: null, duration: 30, distance: null, notes: '' }] };
+  assert.deepEqual(await post({ ...extra, version: 2, exercises: [{ type: 'cardio', bodyPart: '', name: 'Swim', unit: 'reps' }] }),
+    { imported_records: 1, skipped_records: 0, imported_exercises: 1 });
+  const after = await store.request('/api/export');
+  assert.equal(after.records.length, backup.records.length + 1);
+  for (const invalid of [{}, { ...extra, format: 'tdl-export' }, { ...extra, records: [{ ...extra.records[0], duration: 0 }] }]) {
+    await assert.rejects(post(invalid));
+  }
+  assert.deepEqual((await store.request('/api/export')).records, after.records);
+  assert.equal((await store.request('/api/records?month=2026-11')).records.some((record) => record.exercise === 'Swim'), true);
+});
