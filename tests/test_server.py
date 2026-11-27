@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from backend.server import COOKIE, SESSION_SECONDS, RequestError, Store, create_server, token_hash, validate_record
+from backend.server import APP_VERSION, COOKIE, SESSION_SECONDS, RequestError, Store, create_server, token_hash, validate_record
 
 
 def strength(**changes):
@@ -367,6 +367,18 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("DELETE", f'/api/exercises/{body["exercise"]["id"]}', {})[0], 200)
         self.assertEqual(self.request("DELETE", f'/api/exercises/{body["exercise"]["id"]}', {})[0], 404)
         self.assertEqual(len(self.request("GET", "/api/exercises")[2]["exercises"]), 1)
+
+    def test_static_assets_carry_release_version(self):
+        (self.dist / "index.html").write_text('<link href="/style.css"><script type="module" src="/app.js"></script><a href="#records">')
+        (self.dist / "app.js").write_text("import { t } from './i18n.mjs';\nexport const app = 1;")
+        self.login()
+        html = self.request("GET", "/")[2].decode()
+        self.assertIn(f'href="/style.css?v={APP_VERSION}"', html)
+        self.assertIn(f'src="/app.js?v={APP_VERSION}"', html)
+        self.assertIn('href="#records"', html)
+        status, _, script = self.request("GET", f"/app.js?v={APP_VERSION}")
+        self.assertEqual(status, 200)
+        self.assertIn(f"from './i18n.mjs?v={APP_VERSION}'", script.decode())
 
     def test_weight_round_trips_through_http(self):
         self.login()

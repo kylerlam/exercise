@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 COOKIE = "exercise_session"
 SESSION_SECONDS = 30 * 24 * 60 * 60
 PASSWORD_ITERATIONS = 600_000
@@ -138,6 +138,21 @@ def validate_exercise(data):
     else:
         raise RequestError("Choose strength or cardio.", code="INVALID_TYPE")
     return item
+
+
+ASSET_REFERENCE = re.compile(r"""((?:src|href)=["'])(/[^"'?#]+\.(?:js|mjs|css|svg))(["'])""")
+MODULE_IMPORT = re.compile(r"""(\bfrom\s+["']\./[^"'?#]+\.mjs)(["'])""")
+
+
+def versioned_assets(content, suffix):
+    """Tag same-origin asset URLs with the release so edge and browser caches cannot mix versions."""
+    if suffix not in (".html", ".js", ".mjs"):
+        return content
+    text = content.decode("utf-8")
+    if suffix == ".html":
+        text = ASSET_REFERENCE.sub(rf"\g<1>\g<2>?v={APP_VERSION}\g<3>", text)
+    text = MODULE_IMPORT.sub(rf"\g<1>?v={APP_VERSION}\g<2>", text)
+    return text.encode("utf-8")
 
 
 def password_hash(password, salt):
@@ -495,7 +510,7 @@ def create_server(host="127.0.0.1", port=4186, data_dir=None, dist_dir=None, sec
             content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
             if content_type.startswith("text/") or content_type in ("application/javascript", "application/json"):
                 content_type += "; charset=utf-8"
-            self.send_bytes(target.read_bytes(), content_type)
+            self.send_bytes(versioned_assets(target.read_bytes(), target.suffix), content_type)
 
         def handle_request(self):
             self.pending_cookie = None
