@@ -150,6 +150,14 @@ Object.assign(es, {
   sessionExpiredDraftRetained: 'Tu sesión ha caducado. El borrador sigue aquí. Inicia sesión en otra pestaña y vuelve para guardarlo.',
   draftRestored: 'Se ha restaurado tu registro sin guardar.',
 });
+Object.assign(en, { unit:'Measure', unitReps:'Reps', unitSeconds:'Seconds', secondUnit:'s', timedSeconds:'Timed seconds', unitChanged:'Measure updated.',
+  integerError:'Sets and reps (or seconds) must be whole numbers between 1 and 10,000.', 'errors.INVALID_UNIT':'Choose reps or seconds.' });
+Object.assign(cn, { unit:'计量', unitReps:'次数', unitSeconds:'秒数', secondUnit:'秒', timedSeconds:'计时总秒数', unitChanged:'计量已更新。',
+  integerError:'组数、次数（或秒数）必须为 1 至 10,000 的整数。', 'errors.INVALID_UNIT':'请选择次数或秒数。' });
+Object.assign(tw, { unit:'計量', unitReps:'次數', unitSeconds:'秒數', secondUnit:'秒', timedSeconds:'計時總秒數', unitChanged:'計量已更新。',
+  integerError:'組數、次數（或秒數）必須為 1 至 10,000 的整數。', 'errors.INVALID_UNIT':'請選擇次數或秒數。' });
+Object.assign(es, { unit:'Medida', unitReps:'Repeticiones', unitSeconds:'Segundos', secondUnit:'s', timedSeconds:'Segundos cronometrados', unitChanged:'Medida actualizada.',
+  integerError:'Las series y repeticiones (o segundos) deben ser números enteros entre 1 y 10.000.', 'errors.INVALID_UNIT':'Elige repeticiones o segundos.' });
 const dictionaries = {en,'zh-CN':{...en,...cn},'zh-TW':{...en,...tw},es};
 const STORAGE_KEY='exercise-locale';
 let locale;

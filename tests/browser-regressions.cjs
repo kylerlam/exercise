@@ -95,7 +95,7 @@ function nextDay(day) {
   browser = await (engine === 'webkit' ? webkit : chromium).launch({ headless: true, ...(executable ? { executablePath: executable } : {}) });
   const localeSource = fs.readFileSync(path.join(root, 'dist', 'i18n.mjs'), 'utf8') + '\nexport { en, cn, tw, es };';
   const dictionaries = await import('data:text/javascript;base64,' + Buffer.from(localeSource).toString('base64'));
-  const sharedTerms = new Set(['cardio', 'minuteUnit', 'kmUnit', 'kgUnit', 'themes.aurora']);
+  const sharedTerms = new Set(['cardio', 'minuteUnit', 'kmUnit', 'kgUnit', 'secondUnit', 'themes.aurora']);
   for (const [key, english] of Object.entries(dictionaries.en)) {
     assert.equal(typeof dictionaries.cn[key], 'string', `Missing Chinese translation: ${key}`);
     assert.equal(typeof dictionaries.tw[key], 'string', `Missing Traditional Chinese translation: ${key}`);

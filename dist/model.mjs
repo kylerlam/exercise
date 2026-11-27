@@ -39,10 +39,12 @@ export function calendarDays(month) {
 export function summarize(records) {
   const strength = records.filter((record) => record.type === 'strength');
   const cardio = records.filter((record) => record.type === 'cardio');
+  const timed = (row) => row.unit === 'seconds';
   return {
     days: new Set(records.map((record) => record.day)).size,
     sets: strength.reduce((sum, row) => sum + row.sets, 0),
-    reps: strength.reduce((sum, row) => sum + row.sets * row.reps, 0),
+    reps: strength.filter((row) => !timed(row)).reduce((sum, row) => sum + row.sets * row.reps, 0),
+    seconds: strength.filter(timed).reduce((sum, row) => sum + row.sets * row.reps, 0),
     duration: cardio.reduce((sum, row) => sum + row.duration, 0),
     distance: cardio.reduce((sum, row) => sum + (row.distance ?? 0), 0),
   };
@@ -61,6 +63,7 @@ export function recordPayload(values) {
     exercise: values.exercise.trim(),
     sets: strength ? Number(values.sets) : null,
     reps: strength ? Number(values.reps) : null,
+    unit: strength && values.unit === 'seconds' ? 'seconds' : 'reps',
     weight: strength && values.weight !== '' ? Number(values.weight) : null,
     duration: strength ? null : Number(values.duration),
     distance: strength || values.distance === '' ? null : Number(values.distance),

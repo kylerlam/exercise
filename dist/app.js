@@ -65,8 +65,11 @@ function dayRecords(day = selectedDay) {
   if (loadedMonth !== month) return [];
   return records.filter((record) => record.day === day);
 }
+function repsText(record) {
+  return record.unit === 'seconds' ? `${number(record.reps)} ${t('secondUnit')}` : number(record.reps);
+}
 function compactDescription(record) {
-  if (record.type === 'strength') return `${record.bodyPart}：${record.exercise}${record.weight == null ? '' : ` ${number(record.weight)}${t('kgUnit')}`} × ${record.sets} × ${record.reps}`;
+  if (record.type === 'strength') return `${record.bodyPart}：${record.exercise}${record.weight == null ? '' : ` ${number(record.weight)}${t('kgUnit')}`} × ${record.sets} × ${repsText(record)}`;
   return `${record.exercise} · ${number(record.duration)} ${t('minuteUnit')}${record.distance === null ? '' : ` · ${number(record.distance)} ${t('kmUnit')}`}`;
 }
 function showToast(message, error = false) {
@@ -208,11 +211,47 @@ $('#entry-body-select').addEventListener('change', () => {
   syncPresetControls();
   if (picked) ($('#entry-exercise-select').hidden ? $('#entry-exercise') : $('#entry-exercise-select')).focus();
 });
-$('#entry-exercise-select').addEventListener('change', () => choosePreset($('#entry-exercise-select'), $('#entry-exercise'), () => $('#entry-weight').focus()));
+$('#entry-exercise-select').addEventListener('change', () => choosePreset($('#entry-exercise-select'), $('#entry-exercise'), () => {
+  const preset = sortedExercises('strength').find((item) => item.bodyPart === $('#entry-body').value.trim() && item.name === $('#entry-exercise').value);
+  if (preset) setEntryUnit(preset.unit || 'reps');
+  $('#entry-weight').focus();
+}));
+function setEntryUnit(unit) {
+  $('#entry-unit').value = unit === 'seconds' ? 'seconds' : 'reps';
+  $('#entry-reps').setAttribute('aria-label', t($('#entry-unit').value === 'seconds' ? 'unitSeconds' : 'reps'));
+}
+$('#entry-unit').addEventListener('change', () => setEntryUnit($('#entry-unit').value));
 $('#entry-cardio-select').addEventListener('change', () => choosePreset($('#entry-cardio-select'), $('#entry-cardio-exercise'), () => $('#entry-duration').focus()));
+function unitSelect(value) {
+  const select = element('select', 'unit-select');
+  for (const unit of ['reps', 'seconds']) select.append(Object.assign(element('option', '', t(unit === 'reps' ? 'unitReps' : 'unitSeconds')), { value: unit }));
+  select.value = value || 'reps';
+  return select;
+}
+async function changeExerciseUnit(item, select) {
+  if (exerciseBusy) { select.value = item.unit; return; }
+  exerciseBusy = true;
+  select.disabled = true;
+  try {
+    await authRequest(`/api/exercises/${item.id}`, { method: 'PATCH', body: JSON.stringify({ unit: select.value }) });
+    showToast(t('unitChanged'));
+  } catch (error) {
+    if (handleAuthError(error)) return;
+    showToast(errorMessage(error), true);
+  } finally { exerciseBusy = false; }
+  await loadExercises();
+}
 function exerciseRow(item, cells) {
   const row = element('tr');
   for (const value of cells) row.append(element('td', '', value));
+  if (item.type === 'strength') {
+    const cell = element('td');
+    const select = unitSelect(item.unit);
+    select.setAttribute('aria-label', `${t('unit')} · ${item.bodyPart}：${item.name}`);
+    select.addEventListener('change', () => changeExerciseUnit(item, select));
+    cell.append(select);
+    row.append(cell);
+  }
   const actions = element('td');
   const remove = actionButton('delete', `${t('deleteExercise')} · ${item.bodyPart ? item.bodyPart + '：' : ''}${item.name}`, () => removeExercise(item));
   const wrap = element('div', 'record-actions');
@@ -229,7 +268,7 @@ function renderExercises() {
     if (exercisesLoaded && !rows.length) {
       const empty = element('tr', 'exercise-empty-row');
       const cell = element('td', 'month-empty', t('noExercises'));
-      cell.colSpan = type === 'strength' ? 3 : 2;
+      cell.colSpan = type === 'strength' ? 4 : 2;
       empty.append(cell);
       rows.push(empty);
     }
@@ -253,7 +292,7 @@ async function addExercise(type) {
   const strength = type === 'strength';
   const error = $(strength ? '#exercise-error' : '#cardio-exercise-error');
   const nameInput = $(strength ? '#exercise-name' : '#cardio-exercise-name');
-  const body = { type, bodyPart: strength ? $('#exercise-body').value.trim() : '', name: nameInput.value.trim() };
+  const body = { type, bodyPart: strength ? $('#exercise-body').value.trim() : '', name: nameInput.value.trim(), unit: strength ? $('#exercise-unit').value : 'reps' };
   const problem = strength && !body.bodyPart ? 'exerciseBodyRequired' : !body.name ? 'exerciseNameRequired' : '';
   error.hidden = !problem;
   if (problem) {
@@ -436,7 +475,7 @@ function renderRecordTable(target, rows, type) {
     for (const key of keys) {
       const cell = element('td', ['weight', 'sets', 'reps', 'duration', 'distance'].includes(key) ? 'numeric-cell' : '');
       const value = record[key];
-      cell.append(element('span', '', value === null ? '—' : typeof value === 'number' ? number(value) : value));
+      cell.append(element('span', '', value === null ? '—' : key === 'reps' ? repsText(record) : typeof value === 'number' ? number(value) : value));
       if (key === 'exercise' && record.notes) cell.append(element('p', 'table-notes', record.notes));
       row.append(cell);
     }
@@ -466,7 +505,7 @@ function renderMonthly() {
   const totals = summarize(loadedMonth === month ? records : []);
   const stats = $('#month-stats');
   stats.replaceChildren();
-  for (const [label, value] of [['trainingDays', totals.days], ['totalSets', totals.sets], ['totalReps', totals.reps], ['cardioMinutes', totals.duration]]) {
+  for (const [label, value] of [['trainingDays', totals.days], ['totalSets', totals.sets], ['totalReps', totals.reps], ['timedSeconds', totals.seconds], ['cardioMinutes', totals.duration]]) {
     const stat = element('div', 'panel summary-stat');
     stat.append(element('span', '', t(label)), element('strong', '', number(value)));
     stats.append(stat);
@@ -532,6 +571,7 @@ function entryValues() {
     exercise: $(type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value,
     sets: $('#entry-sets').value,
     reps: $('#entry-reps').value,
+    unit: type === 'strength' ? $('#entry-unit').value : 'reps',
     weight: $('#entry-weight').value,
     duration: $('#entry-duration').value,
     distance: $('#entry-distance').value,
@@ -546,6 +586,7 @@ function syncTypeFields() {
   $('#strength-fields').hidden = !strength;
   $('#cardio-fields').hidden = strength;
   for (const input of $('#strength-fields').querySelectorAll('input')) { input.disabled = !strength; input.required = strength && input.id !== 'entry-weight'; }
+  $('#entry-unit').disabled = !strength || entryBusy;
   for (const input of $('#cardio-fields').querySelectorAll('input')) { input.disabled = strength; input.required = !strength && input.id !== 'entry-distance'; }
   syncPresetControls();
 }
@@ -560,6 +601,7 @@ function openRecord(record = null, type = 'strength') {
   $('#entry-cardio-exercise').value = record?.type === 'cardio' ? record.exercise : '';
   $('#entry-sets').value = record?.sets ?? '';
   $('#entry-reps').value = record?.reps ?? '';
+  setEntryUnit(record?.unit);
   $('#entry-weight').value = record?.weight ?? '';
   $('#entry-duration').value = record?.duration ?? '';
   $('#entry-distance').value = record?.distance ?? '';
@@ -588,6 +630,7 @@ async function restoreRecordDraft() {
     $('#' + id).value = values[key] ?? '';
   }
   $(values.type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value = values.exercise ?? '';
+  setEntryUnit(values.unit);
   syncPresetControls();
   draftBaseline = '';
   showToast(t('draftRestored'));
@@ -599,6 +642,7 @@ function setEntryBusy(value) {
   entryBusy = value;
   for (const input of recordForm.querySelectorAll('input, textarea')) input.readOnly = value;
   $('#entry-type').disabled = value;
+  $('#entry-unit').disabled = value || $('#entry-type').value !== 'strength';
   if (value) for (const select of recordForm.querySelectorAll('.preset-select')) select.disabled = true;
   else syncPresetControls();
   for (const button of recordForm.querySelectorAll('button')) button.disabled = value;
@@ -722,6 +766,7 @@ window.addEventListener('hashchange', route);
 window.addEventListener('localechange', () => {
   applyTranslations();
   $('#record-dialog-title').textContent = t(editing ? 'editRecord' : 'newRecord');
+  setEntryUnit($('#entry-unit').value);
   render();
 });
 document.addEventListener('visibilitychange', () => {

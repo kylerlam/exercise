@@ -211,6 +211,49 @@ class StoreTests(unittest.TestCase):
             self.store.delete_exercise(item["id"], {})
         self.assertEqual(error.exception.status, 404)
 
+    def test_units_for_timed_holds(self):
+        plank = self.store.create_exercise({"type": "strength", "bodyPart": "核心", "name": "平板支撐", "unit": "seconds"})
+        self.assertEqual(plank["unit"], "seconds")
+        self.assertEqual(self.store.create_exercise({"type": "strength", "bodyPart": "腿", "name": "深蹲"})["unit"], "reps")
+        self.assertEqual(self.store.update_exercise(plank["id"], {"unit": "reps"})["unit"], "reps")
+        cardio = self.store.create_exercise({"type": "cardio", "name": "跑步"})
+        for bad in ({"unit": "minutes"}, {"unit": None}, {"unit": "reps", "name": "x"}):
+            with self.subTest(bad=bad), self.assertRaises(RequestError):
+                self.store.update_exercise(plank["id"], bad)
+        with self.assertRaises(RequestError):
+            self.store.update_exercise(cardio["id"], {"unit": "seconds"})
+        with self.assertRaises(RequestError) as error:
+            self.store.update_exercise(999, {"unit": "reps"})
+        self.assertEqual(error.exception.status, 404)
+        record = self.store.create(strength(bodyPart="核心", exercise="平板支撐", sets=4, reps=60, unit="seconds"))
+        self.assertEqual(record["unit"], "seconds")
+        self.assertEqual(self.store.create(strength())["unit"], "reps")
+        for bad in (strength(unit="minutes"), {"day": "2026-11-16", "type": "cardio", "exercise": "跑步", "duration": 30, "unit": "seconds"}):
+            with self.subTest(bad=bad), self.assertRaises(RequestError):
+                self.store.create(bad)
+
+    def test_v017_database_gains_units_and_classifies_holds(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        with closing(sqlite3.connect(Path(directory.name) / "exercise.sqlite3")) as db:
+            db.executescript("""CREATE TABLE records (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL, type TEXT NOT NULL, bodyPart TEXT NOT NULL, exercise TEXT NOT NULL,
+                sets INTEGER, reps INTEGER, weight REAL, duration REAL, distance REAL, notes TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                INSERT INTO records (day,type,bodyPart,exercise,sets,reps,notes,created_at,updated_at)
+                    VALUES('2026-11-16','strength','核心','平板支撑',4,60,'','t','t');
+                CREATE TABLE exercises (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, bodyPart TEXT NOT NULL,
+                    name TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(type, bodyPart, name));
+                INSERT INTO exercises (type,bodyPart,name,created_at) VALUES
+                    ('strength','核心','平板支撑','t'), ('strength','胸','平板卧推','t'), ('strength','核心','Side Plank','t');""")
+        store = Store(directory.name, clock=lambda: self.now)
+        units = {item["name"]: item["unit"] for item in store.exercises()["exercises"]}
+        self.assertEqual(units, {"平板支撑": "seconds", "平板卧推": "reps", "Side Plank": "seconds"})
+        self.assertEqual(store.month("2026-11")["records"][0]["unit"], "reps")
+        store.update_exercise(1, {"unit": "reps"})
+        reopened = Store(directory.name, clock=lambda: self.now)
+        self.assertEqual(reopened.exercises()["exercises"][0]["unit"], "reps")
+
     def test_month_filtering_leap_day_and_boundaries(self):
         for day in ("2024-02-29", "2024-03-01", "9998-12-31"):
             self.store.create(strength(day=day))
