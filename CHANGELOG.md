@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8 — 2026-11-27
+
+- Strength exercises now have a measure: reps or seconds. Holds such as planks are recorded as sets × seconds per set instead of being forced into reps.
+- The Exercises table gains a Measure column, switchable per row; on upgrade, saved exercises named like plank / side plank / wall sit are set to seconds. Existing records stay in reps.
+- In the record dialog, the Reps label is a reps/seconds switch that follows the picked exercise and can be changed for manually typed moves.
+- Monthly summary adds "Timed seconds" (sets × seconds); timed holds no longer inflate total reps. Records, calendar and monthly lines show e.g. "× 4 × 60 s".
+- Dropdowns in the record dialog now match the height of the input boxes beside them.
+
 ## 0.1.7 — 2026-11-27
 
 - Fix: after the 0.1.6 release, Cloudflare kept serving the old `app.js` to browsers, so the Exercises tab fell back to the calendar. The server now tags every script, stylesheet and module import with the release version so cached files can never mix versions.
