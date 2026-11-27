@@ -131,94 +131,110 @@ async function loadExercises() {
     if (handleAuthError(error)) return;
     showPageError(error);
   }
-  renderPresetOptions();
   renderBodyPartOptions();
+  if (recordDialog.open && !entryBusy) syncPresetControls();
   if (view === 'exercises') renderExercises();
 }
+const OTHER = '__other__';
 function sortedExercises(type) {
   return exercises.filter((item) => item.type === type).sort((a, b) => a.bodyPart.localeCompare(b.bodyPart, getLocale()) || a.name.localeCompare(b.name, getLocale()));
 }
-function exerciseGroups() {
-  const groups = new Map();
-  for (const item of sortedExercises('strength')) {
-    if (!groups.has(item.bodyPart)) groups.set(item.bodyPart, []);
-    groups.get(item.bodyPart).push(item);
-  }
-  const cardio = sortedExercises('cardio');
-  return { strength: groups, cardio };
+function bodyParts() {
+  return [...new Set(sortedExercises('strength').map((item) => item.bodyPart))];
+}
+function exerciseNames(type, part = '') {
+  return sortedExercises(type).filter((item) => type === 'cardio' || item.bodyPart === part).map((item) => item.name);
 }
 function renderBodyPartOptions() {
-  const parts = [...new Set(exercises.filter((item) => item.type === 'strength').map((item) => item.bodyPart))];
-  $('#body-part-options').replaceChildren(...parts.map((part) => Object.assign(element('option'), { value: part })));
+  $('#body-part-options').replaceChildren(...bodyParts().map((part) => Object.assign(element('option'), { value: part })));
 }
-function renderPresetOptions() {
-  const select = $('#entry-preset');
-  const type = $('#entry-type').value;
-  const { strength, cardio } = exerciseGroups();
-  const available = type === 'strength' ? strength.size : cardio.length;
-  const placeholder = element('option', '', t(available ? 'presetManual' : 'presetEmpty'));
+function fillSelect(select, values) {
+  const placeholder = element('option', '', t('choosePlaceholder'));
   placeholder.value = '';
-  select.replaceChildren(placeholder);
-  if (type === 'strength') {
-    for (const [part, items] of strength) {
-      const group = element('optgroup');
-      group.label = part;
-      for (const item of items) group.append(Object.assign(element('option', '', item.name), { value: String(item.id) }));
-      select.append(group);
-    }
-  } else {
-    for (const item of cardio) select.append(Object.assign(element('option', '', item.name), { value: String(item.id) }));
-  }
-  select.disabled = entryBusy || !available;
-  matchPreset();
+  const other = element('option', '', t('otherManual'));
+  other.value = OTHER;
+  select.replaceChildren(placeholder, ...values.map((value) => Object.assign(element('option', '', value), { value })), other);
 }
-function matchPreset() {
-  const type = $('#entry-type').value;
-  const name = $(type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value.trim();
-  const body = type === 'strength' ? $('#entry-body').value.trim() : '';
-  const found = exercises.find((item) => item.type === type && item.name === name && item.bodyPart === body);
-  $('#entry-preset').value = found ? String(found.id) : '';
-}
-function applyPreset() {
-  const item = exercises.find((entry) => String(entry.id) === $('#entry-preset').value);
-  if (!item) return;
-  if (item.type === 'strength') {
-    $('#entry-body').value = item.bodyPart;
-    $('#entry-exercise').value = item.name;
-    $('#entry-weight').focus();
-  } else {
-    $('#entry-cardio-exercise').value = item.name;
-    $('#entry-duration').focus();
+// Each preset dropdown mirrors a text input; the input stays the single source of truth.
+function bindPreset(select, input, values, active) {
+  const current = input.value.trim();
+  const usable = active && values.length > 0;
+  select.hidden = !usable;
+  if (usable) {
+    fillSelect(select, values);
+    select.value = values.includes(current) ? current : current ? OTHER : '';
   }
+  input.hidden = usable && select.value !== OTHER;
+  select.disabled = !active || entryBusy;
+  select.required = usable;
+  input.required = active && !input.hidden;
+}
+function syncPresetControls() {
+  const strength = $('#entry-type').value === 'strength';
+  const parts = bodyParts();
+  const part = $('#entry-body').value.trim();
+  bindPreset($('#entry-body-select'), $('#entry-body'), parts, strength);
+  bindPreset($('#entry-exercise-select'), $('#entry-exercise'), parts.includes(part) ? exerciseNames('strength', part) : [], strength);
+  bindPreset($('#entry-cardio-select'), $('#entry-cardio-exercise'), exerciseNames('cardio'), !strength);
+  if (strength && !$('#entry-body-select').hidden && !part) {
+    const select = $('#entry-exercise-select');
+    const waiting = element('option', '', t('choosePartFirst'));
+    waiting.value = '';
+    select.replaceChildren(waiting);
+    select.hidden = false;
+    select.disabled = true;
+    select.required = false;
+    $('#entry-exercise').hidden = true;
+    $('#entry-exercise').required = false;
+  }
+}
+function choosePreset(select, input, next) {
+  if (select.value === OTHER) {
+    input.value = '';
+    input.hidden = false;
+    input.required = true;
+    input.focus();
+    return false;
+  }
+  input.value = select.value;
+  input.hidden = true;
+  input.required = false;
+  if (next) next();
+  return true;
+}
+$('#entry-body-select').addEventListener('change', () => {
+  const picked = choosePreset($('#entry-body-select'), $('#entry-body'));
+  $('#entry-exercise').value = '';
+  syncPresetControls();
+  if (picked) ($('#entry-exercise-select').hidden ? $('#entry-exercise') : $('#entry-exercise-select')).focus();
+});
+$('#entry-exercise-select').addEventListener('change', () => choosePreset($('#entry-exercise-select'), $('#entry-exercise'), () => $('#entry-weight').focus()));
+$('#entry-cardio-select').addEventListener('change', () => choosePreset($('#entry-cardio-select'), $('#entry-cardio-exercise'), () => $('#entry-duration').focus()));
+function exerciseRow(item, cells) {
+  const row = element('tr');
+  for (const value of cells) row.append(element('td', '', value));
+  const actions = element('td');
+  const remove = actionButton('delete', `${t('deleteExercise')} · ${item.bodyPart ? item.bodyPart + '：' : ''}${item.name}`, () => removeExercise(item));
+  const wrap = element('div', 'record-actions');
+  wrap.append(remove);
+  actions.append(wrap);
+  row.append(actions);
+  return row;
 }
 function renderExercises() {
-  const strength = $('#exercise-type').value === 'strength';
-  $('#exercise-body-field').hidden = !strength;
-  const library = $('#exercise-library');
-  library.replaceChildren();
-  if (!exercisesLoaded) return;
-  const { strength: groups, cardio } = exerciseGroups();
-  if (!groups.size && !cardio.length) {
-    const empty = element('div', 'empty-state small-empty');
-    empty.innerHTML = icon('strength');
-    empty.append(element('h3', '', t('noExercises')));
-    library.append(empty);
-    return;
-  }
-  const section = (title, items) => {
-    const group = element('section', 'exercise-group');
-    group.append(element('h3', '', title));
-    const list = element('ul', 'exercise-chips');
-    for (const item of items) {
-      const chip = element('li', 'exercise-chip');
-      chip.append(element('span', '', item.name), actionButton('delete', `${t('deleteExercise')} · ${item.bodyPart ? item.bodyPart + '：' : ''}${item.name}`, () => removeExercise(item)));
-      list.append(chip);
+  for (const [type, id] of [['strength', '#strength-exercise-rows'], ['cardio', '#cardio-exercise-rows']]) {
+    const body = $(id);
+    const entry = body.querySelector('.exercise-entry-row');
+    const rows = exercisesLoaded ? sortedExercises(type).map((item) => exerciseRow(item, type === 'strength' ? [item.bodyPart, item.name] : [item.name])) : [];
+    if (exercisesLoaded && !rows.length) {
+      const empty = element('tr', 'exercise-empty-row');
+      const cell = element('td', 'month-empty', t('noExercises'));
+      cell.colSpan = type === 'strength' ? 3 : 2;
+      empty.append(cell);
+      rows.push(empty);
     }
-    group.append(list);
-    library.append(group);
-  };
-  for (const [part, items] of groups) section(part, items);
-  if (cardio.length) section(t('cardio'), cardio);
+    body.replaceChildren(entry, ...rows);
+  }
 }
 async function removeExercise(item) {
   if (exerciseBusy || !confirm(t('deleteExerciseConfirm', { name: (item.bodyPart ? item.bodyPart + '：' : '') + item.name }))) return;
@@ -232,32 +248,39 @@ async function removeExercise(item) {
   } finally { exerciseBusy = false; }
   await loadExercises();
 }
-$('#exercise-type').addEventListener('change', () => { $('#exercise-error').hidden = true; renderExercises(); });
-$('#exercise-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
+async function addExercise(type) {
   if (exerciseBusy) return;
-  const type = $('#exercise-type').value;
-  const body = { type, bodyPart: type === 'strength' ? $('#exercise-body').value.trim() : '', name: $('#exercise-name').value.trim() };
-  const problem = type === 'strength' && !body.bodyPart ? 'exerciseBodyRequired' : !body.name ? 'exerciseNameRequired' : '';
-  $('#exercise-error').hidden = !problem;
-  if (problem) { $('#exercise-error').textContent = t(problem); return; }
+  const strength = type === 'strength';
+  const error = $(strength ? '#exercise-error' : '#cardio-exercise-error');
+  const nameInput = $(strength ? '#exercise-name' : '#cardio-exercise-name');
+  const body = { type, bodyPart: strength ? $('#exercise-body').value.trim() : '', name: nameInput.value.trim() };
+  const problem = strength && !body.bodyPart ? 'exerciseBodyRequired' : !body.name ? 'exerciseNameRequired' : '';
+  error.hidden = !problem;
+  if (problem) {
+    error.textContent = t(problem);
+    (strength && !body.bodyPart ? $('#exercise-body') : nameInput).focus();
+    return;
+  }
   exerciseBusy = true;
-  $('#add-exercise').disabled = true;
+  const button = $(strength ? '#add-exercise' : '#add-cardio-exercise');
+  button.disabled = true;
   try {
     await authRequest('/api/exercises', { method: 'POST', body: JSON.stringify(body) });
-    $('#exercise-name').value = '';
-    $('#exercise-name').focus();
+    nameInput.value = '';
     showToast(t('exerciseAdded'));
-  } catch (error) {
-    if (handleAuthError(error)) return;
-    $('#exercise-error').textContent = error.status === 409 ? t('exerciseExists') : errorMessage(error);
-    $('#exercise-error').hidden = false;
+  } catch (failure) {
+    if (handleAuthError(failure)) return;
+    error.textContent = failure.status === 409 ? t('exerciseExists') : errorMessage(failure);
+    error.hidden = false;
   } finally {
     exerciseBusy = false;
-    $('#add-exercise').disabled = false;
+    button.disabled = false;
   }
   await loadExercises();
-});
+  nameInput.focus();
+}
+$('#strength-exercise-form').addEventListener('submit', (event) => { event.preventDefault(); addExercise('strength'); });
+$('#cardio-exercise-form').addEventListener('submit', (event) => { event.preventDefault(); addExercise('cardio'); });
 function selectDay(day, targetView = view) {
   if (!validDay(day)) return;
   selectionVersion++;
@@ -524,7 +547,7 @@ function syncTypeFields() {
   $('#cardio-fields').hidden = strength;
   for (const input of $('#strength-fields').querySelectorAll('input')) { input.disabled = !strength; input.required = strength && input.id !== 'entry-weight'; }
   for (const input of $('#cardio-fields').querySelectorAll('input')) { input.disabled = strength; input.required = !strength && input.id !== 'entry-distance'; }
-  renderPresetOptions();
+  syncPresetControls();
 }
 function openRecord(record = null, type = 'strength') {
   if (!authenticated) return;
@@ -547,7 +570,8 @@ function openRecord(record = null, type = 'strength') {
   syncTypeFields();
   draftBaseline = JSON.stringify(entryValues());
   recordDialog.showModal();
-  $(($('#entry-type').value === 'strength') ? '#entry-body' : '#entry-cardio-exercise').focus();
+  const first = $('#entry-type').value === 'strength' ? ['#entry-body-select', '#entry-body'] : ['#entry-cardio-select', '#entry-cardio-exercise'];
+  (first.map((id) => $(id)).find((control) => !control.hidden) || $(first[1])).focus();
 }
 function closeRecord() {
   if (!entryBusy && (!isDirty() || confirm(t('discardDraft')))) recordDialog.close();
@@ -564,7 +588,7 @@ async function restoreRecordDraft() {
     $('#' + id).value = values[key] ?? '';
   }
   $(values.type === 'strength' ? '#entry-exercise' : '#entry-cardio-exercise').value = values.exercise ?? '';
-  matchPreset();
+  syncPresetControls();
   draftBaseline = '';
   showToast(t('draftRestored'));
   if (loadedMonth !== month) await loadMonth();
@@ -575,7 +599,8 @@ function setEntryBusy(value) {
   entryBusy = value;
   for (const input of recordForm.querySelectorAll('input, textarea')) input.readOnly = value;
   $('#entry-type').disabled = value;
-  $('#entry-preset').disabled = value || $('#entry-preset').options.length < 2;
+  if (value) for (const select of recordForm.querySelectorAll('.preset-select')) select.disabled = true;
+  else syncPresetControls();
   for (const button of recordForm.querySelectorAll('button')) button.disabled = value;
   $('#save-record').textContent = t(value ? 'saving' : 'saveRecord');
 }
@@ -611,8 +636,7 @@ recordForm.addEventListener('submit', async (event) => {
   } finally { setEntryBusy(false); }
 });
 $('#entry-type').addEventListener('change', syncTypeFields);
-$('#entry-preset').addEventListener('change', applyPreset);
-for (const id of ['#entry-body', '#entry-exercise', '#entry-cardio-exercise']) $(id).addEventListener('input', matchPreset);
+
 $('#close-record').addEventListener('click', closeRecord);
 $('#cancel-record').addEventListener('click', closeRecord);
 recordDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeRecord(); });
