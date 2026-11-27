@@ -14,11 +14,15 @@ const paths = {
   calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18"/>',
   chart: '<path d="M4 4v16h16M8 15v-4M13 15V7M18 15v-7"/>',
   export: '<path d="M12 3v12m-4-4 4 4 4-4M4 15v5h16v-5"/>',
+  import: '<path d="M12 15V3m-4 4 4-4 4 4M4 15v5h16v-5"/>',
+  demo: '<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4Z"/>',
   settings: '<path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   edit: '<path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-4-4L5 15l-1 5Z"/>',
   delete: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/>',
   strength: '<path d="m8 8 8 8M4 8l4-4 4 4-4 4Zm8 8 4-4 4 4-4 4M2 12l4-4m12 12 4-4"/>',
 };
+// The Gym exercise library (exercises-dataset); links open its search for the saved name.
+const GYM_URL = 'https://gym.kylermaker.com/';
 function icon(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.strength}</svg>`;
 }
@@ -253,9 +257,16 @@ function exerciseRow(item, cells) {
     row.append(cell);
   }
   const actions = element('td');
+  const demo = element('a', 'icon-button record-action');
+  demo.href = GYM_URL + '?q=' + encodeURIComponent(item.name);
+  demo.target = '_blank';
+  demo.rel = 'noopener';
+  demo.innerHTML = icon('demo');
+  demo.setAttribute('aria-label', `${t('gymDemo')} · ${item.name}`);
+  demo.title = t('gymDemo');
   const remove = actionButton('delete', `${t('deleteExercise')} · ${item.bodyPart ? item.bodyPart + '：' : ''}${item.name}`, () => removeExercise(item));
   const wrap = element('div', 'record-actions');
-  wrap.append(remove);
+  wrap.append(demo, remove);
   actions.append(wrap);
   row.append(actions);
   return row;
@@ -762,6 +773,26 @@ async function exportData() {
 }
 $('#open-export').addEventListener('click', exportData);
 $('#mobile-export').addEventListener('click', exportData);
+let importing = false;
+async function importData(file) {
+  if (importing || !file) return;
+  importing = true;
+  try {
+    if (file.size > 5 * 1024 * 1024) throw Object.assign(new Error(t('importTooLarge')), { code: 'IMPORT_TOO_LARGE' });
+    let content;
+    try { content = JSON.parse(await file.text()); } catch { throw Object.assign(new Error(t('importInvalid')), { code: 'INVALID_IMPORT' }); }
+    const result = await authRequest('/api/import', { method: 'POST', body: JSON.stringify(content) });
+    showToast(t('imported', { records: result.imported_records, skipped: result.skipped_records, exercises: result.imported_exercises }));
+    await Promise.all([loadMonth(), loadExercises()]);
+  } catch (error) {
+    if (!handleAuthError(error)) showToast(error.code ? errorMessage(error) : t('importFailed'), true);
+  } finally {
+    importing = false;
+    $('#import-file').value = '';
+  }
+}
+for (const id of ['#open-import', '#mobile-import']) $(id).addEventListener('click', () => { if (!importing) $('#import-file').click(); });
+$('#import-file').addEventListener('change', (event) => importData(event.target.files[0]));
 window.addEventListener('hashchange', route);
 window.addEventListener('localechange', () => {
   applyTranslations();

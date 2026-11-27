@@ -136,7 +136,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.store.login({"username": "trainer", "password": "new-password-123"})[1], {"username": "trainer"})
 
     def test_account_rejects_invalid_current_or_new_password(self):
-        for changes in ({"current_password": "wrong"}, {"new_password": "short"}, {"new_password": None},
+        for changes in ({"current_password": "wrong"}, {"new_password": "short"}, {"new_password": "elevenchars"}, {"new_password": None},
                         {"username": " spaced "}, {"username": "a\nb"}, {"username": 3}):
             value = {"username": "admin", "current_password": "admin123", **changes}
             with self.subTest(value=value), self.assertRaises(RequestError):
@@ -309,10 +309,37 @@ class StoreTests(unittest.TestCase):
 
     def test_export_contains_only_records_and_metadata(self):
         record = self.store.create(strength(exercise="<script>alert(1)</script>", notes="<img src=x onerror=alert(1)>"))
+        self.store.create_exercise({"type": "strength", "bodyPart": "腿", "name": "<script>alert(1)</script>"})
         exported = self.store.export()
-        self.assertEqual(set(exported), {"format", "version", "exported_at", "records"})
+        self.assertEqual(set(exported), {"format", "version", "exported_at", "records", "exercises"})
         self.assertEqual(exported["records"], [record])
-        self.assertEqual(exported["format"], "exercise")
+        self.assertEqual((exported["format"], exported["version"]), ("exercise", 2))
+        self.assertEqual([item["name"] for item in exported["exercises"]], ["<script>alert(1)</script>"])
+
+    def test_import_merges_records_and_exercises_without_duplicates(self):
+        self.store.create(strength())
+        self.store.create_exercise({"type": "strength", "bodyPart": "腿", "name": "深蹲", "unit": "reps"})
+        self.store.create_exercise({"type": "cardio", "bodyPart": "", "name": "跑步"})
+        exported = self.store.export()
+        other = Store(Path(self.directory.name) / "other")
+        self.assertEqual(other.import_data(exported), {"imported_records": 1, "skipped_records": 0, "imported_exercises": 2})
+        self.assertEqual(other.import_data(exported), {"imported_records": 0, "skipped_records": 1, "imported_exercises": 0})
+        copied = other.export()
+        strip = lambda rows: [{k: v for k, v in row.items() if k != "id"} for row in rows]
+        self.assertEqual(strip(copied["records"]), strip(exported["records"]))
+        self.assertEqual(sorted(item["name"] for item in copied["exercises"]), sorted(item["name"] for item in exported["exercises"]))
+        legacy = {"format": "exercise", "version": 1, "records": [{**strength(reps=8), "id": 99}]}
+        self.assertEqual(other.import_data(legacy)["imported_records"], 1)
+        for invalid in ({}, {"format": "tdl-export", "version": 1, "records": []}, {"format": "exercise", "version": 3, "records": []},
+                        {"format": "exercise", "version": 2, "records": {}},
+                        {"format": "exercise", "version": 2, "records": [{**strength(), "sets": 0}]},
+                        {"format": "exercise", "version": 2, "records": [], "exercises": [{"type": "yoga", "name": "x"}]},
+                        {"format": "exercise", "version": 2, "records": [{**strength(), "created_at": "yesterday"}]}):
+            with self.subTest(invalid=invalid):
+                before = other.export()
+                with self.assertRaises(RequestError):
+                    other.import_data(invalid)
+                self.assertEqual(other.export()["records"], before["records"])
 
 
 class HTTPTests(unittest.TestCase):
@@ -547,6 +574,54 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(headers["X-Frame-Options"], "DENY")
         self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
         self.assertEqual(self.request("HEAD", "/app.js")[2], b"")
+
+    def test_import_over_http_requires_sign_in_and_same_origin(self):
+        payload = {"format": "exercise", "version": 2, "records": [strength()], "exercises": []}
+        self.assertEqual(self.request("POST", "/api/import", payload)[0], 401)
+        self.login()
+        self.assertEqual(self.request("POST", "/api/import", payload, headers={"Origin": "https://evil.example"})[0], 403)
+        status, _, body = self.request("POST", "/api/import", payload)
+        self.assertEqual((status, body), (200, {"imported_records": 1, "skipped_records": 0, "imported_exercises": 0}))
+        big = json.dumps({**payload, "records": [strength(notes="x" * 2000)] * 1500})
+        self.assertGreater(len(big), 32_768)
+        self.assertEqual(self.request("POST", "/api/import", raw=big)[0], 200)
+        self.assertEqual(self.request("POST", "/api/records", raw=json.dumps({**strength(), "notes": "x" * 40_000}))[0], 413)
+
+    def test_login_limit_uses_cloudflare_address_only_behind_trusted_proxy(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        self.server = create_server(port=0, store=self.store, dist_dir=self.dist, proxies={"127.0.0.1"})
+        self.server.RequestHandlerClass.log_message = lambda *args: None
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        wrong = {"username": "admin", "password": "wrong"}
+        for _ in range(10):
+            self.assertEqual(self.request("POST", "/api/auth/login", wrong, headers={"CF-Connecting-IP": "203.0.113.9"})[0], 401)
+        self.assertEqual(self.request("POST", "/api/auth/login", wrong, headers={"CF-Connecting-IP": "203.0.113.9"})[0], 429)
+        self.assertEqual(self.request("POST", "/api/auth/login", {"username": "admin", "password": "admin123"},
+                                      headers={"CF-Connecting-IP": "198.51.100.4"})[0], 200)
+        self.assertNotIn("Strict-Transport-Security", self.request("GET", "/api/health")[1])
+
+    def test_https_deployment_sends_hsts(self):
+        secure = create_server(port=0, store=self.store, dist_dir=self.dist, secure_cookie=True)
+        thread = threading.Thread(target=secure.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection(*secure.server_address, timeout=10)
+            connection.request("GET", "/api/health")
+            response = connection.getresponse()
+            response.read()
+            connection.close()
+            self.assertEqual(response.getheader("Strict-Transport-Security"), "max-age=31536000")
+        finally:
+            secure.shutdown()
+            secure.server_close()
+            thread.join()
+
+    def test_settings_page_shows_the_running_version(self):
+        settings = (Path(__file__).resolve().parents[1] / "dist/settings.mjs").read_text()
+        self.assertIn(f'<code class="settings-version">v{APP_VERSION}</code>', settings)
 
     def test_export_is_private_json_without_credentials(self):
         self.login()

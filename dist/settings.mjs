@@ -11,7 +11,7 @@ export function initSettings(user = null) {
   dialog.setAttribute('aria-labelledby', 'settings-title');
   dialog.innerHTML = `
     <div class="dialog-heading">
-      <h2 id="settings-title"><span data-i18n="settings"></span> <code class="settings-version">v0.1.5</code></h2>
+      <h2 id="settings-title"><span data-i18n="settings"></span> <code class="settings-version">v0.1.9</code></h2>
       <button class="icon-button" id="close-settings" type="button" data-i18n-aria-label="closeSettings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
     </div>
     <section class="preferences-section">
@@ -27,7 +27,7 @@ export function initSettings(user = null) {
       <form id="account-form">
         <label class="field"><span data-i18n="username"></span><input id="account-username" name="username" autocomplete="username" required minlength="2" maxlength="64"></label>
         <div class="field"><label for="account-current-password" data-i18n="currentPassword"></label><span class="password-field"><input id="account-current-password" name="current_password" type="password" autocomplete="current-password" data-password-field required maxlength="256"></span></div>
-        <div class="field"><label for="account-new-password" data-i18n="newPassword"></label><span class="password-field"><input id="account-new-password" name="new_password" type="password" autocomplete="new-password" data-password-field minlength="8" maxlength="256"></span></div>
+        <div class="field"><label for="account-new-password" data-i18n="newPassword"></label><span class="password-field"><input id="account-new-password" name="new_password" type="password" autocomplete="new-password" data-password-field minlength="12" maxlength="256"></span></div>
         <p class="field-hint" data-i18n="newPasswordHint"></p><p class="form-error" id="account-error" role="alert" hidden></p>
         <div class="dialog-actions"><button class="button primary" type="submit" id="save-account" data-i18n="saveAccount"></button></div>
       </form>

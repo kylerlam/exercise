@@ -68,7 +68,8 @@ test('create/edit/delete/export follow the private API shape and preserve versio
   await assert.rejects(write(store, '/api/records/' + created.id, { ...input(), version: 2 }, 'PATCH'), error('NOT_FOUND', 404));
   const backup = await store.request('/api/export');
   assert.equal(backup.format, 'exercise');
-  assert.equal(backup.version, 1);
+  assert.equal(backup.version, 2);
+  assert.ok(Array.isArray(backup.exercises));
   assert.equal(backup.records.length, 4);
   assert.equal(backup.user, undefined);
 });
